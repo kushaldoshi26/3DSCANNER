@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"D:\\\\3dSCANNER\" -Force)",
+      "Bash(Select-Object Name, Length, LastWriteTime)",
+      "Bash(Format-Table -AutoSize)",
+      "Bash(Out-String -Width 200)"
+    ]
+  }
+}

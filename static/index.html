@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3DINVENZA — AI Metrology Scanner</title>
+    <meta name="description" content="3DINVENZA — Calibrated 3D Photogrammetry & AI Reconstruction Suite with Physical Dimension Measurement">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <!-- CSS -->
+    <link rel="stylesheet" href="/static/style.css">
+    <!-- Three.js & Loaders from CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
+</head>
+<body>
+    <div class="workspace">
+
+        <!-- HEADER -->
+        <header class="top-header">
+            <div class="brand">
+                <div class="logo-icon"><i class="fa-solid fa-cube"></i></div>
+                <div class="brand-text">
+                    <h1>3DINVENZA <span class="badge">METROLOGY SCANNER</span></h1>
+                    <p>Calibrated 3D Photogrammetry & Physical Dimension Suite</p>
+                </div>
+            </div>
+            <div class="header-tools">
+                <button class="header-nav-btn" id="navHome" title="Home View">
+                    <i class="fa-solid fa-house"></i> Home
+                </button>
+                <button class="header-nav-btn active" id="navWorkspace" title="3D Workspace">
+                    <i class="fa-solid fa-cube"></i> Workspace
+                </button>
+                <button class="header-nav-btn" id="navGallery" title="Model Gallery">
+                    <i class="fa-solid fa-layer-group"></i> Gallery
+                    <span class="gallery-count-badge" id="galleryCountBadge">0</span>
+                </button>
+                <button class="header-nav-btn" id="navProfile" title="Profile & Settings" style="display:none;">
+                    <i class="fa-solid fa-user"></i> Profile
+                </button>
+                <button class="header-nav-btn" id="navAdmin" title="Admin Dashboard" style="display:none;">
+                    <i class="fa-solid fa-shield-halved"></i> Admin
+                </button>
+                <button class="header-nav-btn" id="navAuth" title="Login / Register">
+                    <i class="fa-solid fa-right-to-bracket"></i> Login
+                </button>
+                <div class="header-separator"></div>
+                <div class="status-indicator"><span class="dot green pulse"></span> System Online</div>
+            </div>
+        </header>
+
+        <!-- ======================== HOME VIEW ======================== -->
+        <div class="home-view" id="homeView">
+            <div class="home-hero">
+                <h1>Welcome to 3DINVENZA</h1>
+                <p>Upload a preview image to see the shape react, then proceed to the scanner workspace.</p>
+                <input type="file" id="homePreviewUpload" accept="image/*" style="display: none;">
+                <button class="btn btn-primary btn-glow mt-2" onclick="document.getElementById('homePreviewUpload').click()">
+                    <i class="fa-solid fa-image"></i> Upload Preview Image
+                </button>
+                <button class="btn btn-secondary mt-2" id="btnHomeToWorkspace">
+                    <i class="fa-solid fa-arrow-right"></i> Enter Workspace
+                </button>
+            </div>
+            <div class="home-animation-container" id="homeCanvasContainer">
+                <!-- Three.js Live Shape Animation Canvas will go here -->
+            </div>
+        </div>
+
+        <!-- ======================== PROFILE/SETTINGS VIEW ======================== -->
+        <div class="profile-view" id="profileView" style="display: none;">
+            <div class="profile-header">
+                <h2><i class="fa-solid fa-user-gear"></i> User Profile & Settings</h2>
+            </div>
+            <div class="profile-content">
+                <div class="glass-card">
+                    <h3>Account Info</h3>
+                    <p><strong>Username:</strong> <span id="profUsername">--</span></p>
+                    <p><strong>Email:</strong> <span id="profEmail">--</span></p>
+                    <button class="btn btn-secondary mt-2" id="btnLogout"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
+                </div>
+                <div class="glass-card mt-2">
+                    <h3>Preferences</h3>
+                    <div class="setting-row">
+                        <span>Theme</span>
+                        <select id="prefTheme" class="input-select">
+                            <option value="dark">Dark Mode</option>
+                            <option value="light">Light Mode</option>
+                        </select>
+                    </div>
+                    <div class="setting-row">
+                        <span>Default AI Engine</span>
+                        <select id="prefEngine" class="input-select">
+                            <option value="trellis">TRELLIS</option>
+                            <option value="hunyuan3d">Hunyuan3D</option>
+                            <option value="triposr">TripoSR</option>
+                        </select>
+                    </div>
+                    <div class="setting-row">
+                        <span>Notifications</span>
+                        <select id="prefNotifs" class="input-select">
+                            <option value="1">Enabled</option>
+                            <option value="0">Disabled</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-primary mt-2" id="btnSaveSettings">Save Preferences</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ======================== AUTH VIEW ======================== -->
+        <div class="auth-view" id="authView" style="display: none;">
+            <!-- Background Decorations -->
+            <div class="auth-decorations">
+                <div class="auth-glow"></div>
+                <div class="auth-grid"></div>
+            </div>
+
+            <div class="auth-card premium-glass-card">
+                <div class="auth-brand">
+                    <div class="auth-logo-icon"><i class="fa-solid fa-cube"></i></div>
+                    <h3>3DINVENZA</h3>
+                </div>
+                <p class="auth-subtitle">AI-Assisted 3D Reconstruction Platform</p>
+                
+                <div class="auth-tabs">
+                    <button class="auth-tab active" id="tabLogin">Login</button>
+                    <button class="auth-tab" id="tabRegister">Register</button>
+                </div>
+                
+                <!-- Auth message container -->
+                <div id="authMessage" class="auth-message"></div>
+                
+                <div id="loginForm">
+                    <div class="input-group mt-2">
+                        <i class="fa-solid fa-envelope input-icon"></i>
+                        <input type="text" id="loginUser" class="input-text with-icon w-full" placeholder="Email / Username" autocomplete="username" />
+                    </div>
+                    <div class="input-group mt-1">
+                        <i class="fa-solid fa-lock input-icon"></i>
+                        <input type="password" id="loginPass" class="input-text with-icon w-full" placeholder="Password" autocomplete="current-password" />
+                        <i class="fa-solid fa-eye pwd-toggle" onclick="togglePasswordVisibility('loginPass', this)"></i>
+                    </div>
+                    
+                    <div class="auth-options mt-1">
+                        <label class="remember-me">
+                            <input type="checkbox" id="rememberMe"> <span>Remember me</span>
+                        </label>
+                        <a href="#" class="forgot-pwd">Forgot Password?</a>
+                    </div>
+
+                    <button class="btn btn-primary btn-block btn-glow auth-submit-btn mt-2" id="btnSubmitLogin">
+                        <span>Login</span> <i class="fa-solid fa-arrow-right-to-bracket"></i>
+                    </button>
+                </div>
+                
+                <div id="registerForm" style="display: none;">
+                    <div class="input-group mt-2">
+                        <i class="fa-solid fa-user input-icon"></i>
+                        <input type="text" id="regUser" class="input-text with-icon w-full" placeholder="Username (min 3 characters)" autocomplete="username" />
+                    </div>
+                    <div class="input-group mt-1">
+                        <i class="fa-solid fa-envelope input-icon"></i>
+                        <input type="email" id="regEmail" class="input-text with-icon w-full" placeholder="Email address" autocomplete="email" />
+                    </div>
+                    <div class="input-group mt-1">
+                        <i class="fa-solid fa-lock input-icon"></i>
+                        <input type="password" id="regPass" class="input-text with-icon w-full" placeholder="Password (min 6 characters)" autocomplete="new-password" />
+                        <i class="fa-solid fa-eye pwd-toggle" onclick="togglePasswordVisibility('regPass', this)"></i>
+                    </div>
+                    <div class="input-group mt-1">
+                        <i class="fa-solid fa-check-double input-icon"></i>
+                        <input type="password" id="regPassConfirm" class="input-text with-icon w-full" placeholder="Confirm password" autocomplete="new-password" />
+                        <i class="fa-solid fa-eye pwd-toggle" onclick="togglePasswordVisibility('regPassConfirm', this)"></i>
+                    </div>
+                    <button class="btn btn-primary btn-block btn-glow auth-submit-btn mt-2" id="btnSubmitRegister">
+                        <span>Create Account</span> <i class="fa-solid fa-user-plus"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            function togglePasswordVisibility(inputId, iconElement) {
+                const input = document.getElementById(inputId);
+                if (input.type === "password") {
+                    input.type = "text";
+                    iconElement.classList.remove("fa-eye");
+                    iconElement.classList.add("fa-eye-slash");
+                } else {
+                    input.type = "password";
+                    iconElement.classList.remove("fa-eye-slash");
+                    iconElement.classList.add("fa-eye");
+                }
+            }
+        </script>
+
+        <!-- ======================== WORKSPACE VIEW ======================== -->
+        <div class="main-layout" id="workspaceView" style="display: none;">
+
+            <!-- LEFT SIDEBAR -->
+            <aside class="sidebar left-sidebar">
+                <div class="sidebar-header">
+                    <h2><i class="fa-solid fa-wand-magic-sparkles"></i> GENERATE 3D MODEL</h2>
+                </div>
+
+                <div class="sidebar-scrollable">
+                    <!-- UNIFIED SINGLE-IMAGE UPLOAD -->
+                    <div class="section-block">
+                        <div class="section-title">UPLOAD IMAGE</div>
+
+                        <div class="unified-upload-section">
+                            <!-- Image preview (hidden until file selected) -->
+                            <div class="upload-preview" id="unifiedPreview" style="display: none;">
+                                <img id="unifiedPreviewImg" src="" alt="Preview" />
+                                <button class="preview-remove" id="unifiedPreviewRemove" title="Remove image">
+                                    <i class="fa-solid fa-xmark"></i>
+                                </button>
+                            </div>
+
+                            <!-- Dropzone -->
+                            <div class="dropzone" id="dropzone">
+                                <input type="file" id="fileInput" accept="image/*" style="display: none;">
+                                <div class="dropzone-icon"><i class="fa-solid fa-cloud-arrow-up"></i></div>
+                                <p id="dropzoneTitle">Drop your image here</p>
+                                <p class="dropzone-sub" id="dropzoneDesc">Upload a photo to generate a 3D model</p>
+                                <button class="btn btn-secondary btn-sm" onclick="document.getElementById('fileInput').click()">Browse Files</button>
+                            </div>
+
+                            <!-- Hidden file info -->
+                            <div class="file-preview-box" id="filePreviewBox" style="display: none;">
+                                <div class="file-summary">
+                                    <span id="fileCountText"><i class="fa-solid fa-check-circle"></i> 0 files</span>
+                                    <button class="btn btn-text btn-sm" id="clearFilesBtn"><i class="fa-solid fa-xmark"></i> Clear</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- AI ENGINE & SETTINGS -->
+                    <div class="section-block">
+                        <div class="section-title">AI ENGINE</div>
+                        <div class="settings-card glass-card" id="engineConfigBar">
+                            <div class="setting-row">
+                                <span>Engine</span>
+                                <select id="aiEngineSelect" class="input-select">
+                                    <option value="trellis" selected>TRELLIS</option>
+                                    <option value="hunyuan3d">Hunyuan3D</option>
+                                    <option value="triposr">TripoSR</option>
+                                    <option value="ai_depth">AI Depth</option>
+                                </select>
+                            </div>
+                            <div class="setting-row">
+                                <span>Quality</span>
+                                <select id="qualitySelect" class="input-select">
+                                    <option value="fast">Fast</option>
+                                    <option value="high" selected>High</option>
+                                    <option value="ultra">Ultra</option>
+                                </select>
+                            </div>
+                            <div class="setting-row">
+                                <span>Type</span>
+                                <select id="objectTypeSelect" class="input-select">
+                                    <option value="organic" selected>Organic</option>
+                                    <option value="hard_surface">Hard-Surface</option>
+                                </select>
+                            </div>
+                            <div class="checkbox-row mt-2">
+                                <label><input type="checkbox" id="refineToggle" checked> AI Refinement</label>
+                                <label><input type="checkbox" id="printableToggle"> Printable</label>
+                            </div>
+                            <div class="status-row mt-2" id="engineStatusBadge">
+                                <span class="dot gray"></span> Checking...
+                            </div>
+
+                            <button class="btn btn-primary btn-block btn-glow mt-2" id="startScanBtnEngine">
+                                <i class="fa-solid fa-rocket"></i> Generate 3D Model
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- ADVANCED MODES (collapsed by default) -->
+                    <div class="section-block">
+                        <button class="advanced-toggle-btn" id="advancedModesToggle">
+                            <i class="fa-solid fa-chevron-down"></i> Advanced Scan Modes
+                        </button>
+                        <div class="advanced-modes-panel" id="advancedModesPanel">
+                            <div class="mode-switch">
+                                <button class="mode-btn" id="modeTurntableBtn">
+                                    <i class="fa-solid fa-sync"></i>
+                                    Turntable<br><small>24-72 Frames</small>
+                                </button>
+                                <button class="mode-btn" id="modeDiffusionBtn">
+                                    <i class="fa-solid fa-expand"></i>
+                                    360°<br><small>Diffusion</small>
+                                </button>
+                                <button class="mode-btn" id="modeMultiBtn">
+                                    <i class="fa-solid fa-images"></i>
+                                    Upload<br><small>Sequence</small>
+                                </button>
+                            </div>
+
+                            <!-- Turntable/multi config (hidden until advanced mode selected) -->
+                            <div class="settings-card glass-card mt-2" id="scannerConfigBar" style="display: none;">
+                                <div class="setting-row">
+                                    <span>Step Angle</span>
+                                    <select id="turntableStepSelect" class="input-select">
+                                        <option value="15.0" selected>15°</option>
+                                        <option value="10.0">10°</option>
+                                        <option value="7.5">7.5°</option>
+                                        <option value="5.0">5.0°</option>
+                                    </select>
+                                </div>
+                                <div class="setting-row">
+                                    <span>Frames</span>
+                                    <span class="val-accent">24 Frames</span>
+                                </div>
+                                <button class="btn btn-primary btn-block btn-glow mt-2" id="startScanBtn">
+                                    <i class="fa-solid fa-play"></i> Start Capture
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- CALIBRATION -->
+                    <div class="section-block">
+                        <div class="section-title">CALIBRATION</div>
+                        <div class="calibration-card glass-card">
+                            <div class="cal-item"><span class="check"><i class="fa-solid fa-circle-check"></i></span> Camera Calibrated</div>
+                            <div class="cal-item"><span class="check"><i class="fa-solid fa-circle-check"></i></span> 50 mm Scale Reference</div>
+                            <div class="cal-item"><span class="check"><i class="fa-solid fa-circle-check"></i></span> Lens Distortion Corrected</div>
+                            <div class="cal-estimate">
+                                <span>Accuracy Estimate</span>
+                                <span class="val-accent">±0.18 mm</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- PROCESSING PIPELINE -->
+                    <div class="section-block pipeline-block" id="pipelineProgressSection">
+                        <div class="section-title">PROCESSING PIPELINE</div>
+                        <ul class="pipeline-list">
+                            <li class="pipe-item" id="stage1">
+                                <span class="pipe-icon"><i class="fa-regular fa-circle"></i></span>
+                                <div class="pipe-text">
+                                    <div class="pipe-name">01 Background Removal</div>
+                                    <div class="pipe-desc">Foreground isolation & alpha mask</div>
+                                </div>
+                            </li>
+                            <li class="pipe-item" id="stage2">
+                                <span class="pipe-icon"><i class="fa-regular fa-circle"></i></span>
+                                <div class="pipe-text">
+                                    <div class="pipe-name">02 AI Reconstruction</div>
+                                    <div class="pipe-desc">TRELLIS / Hunyuan3D / TripoSR</div>
+                                </div>
+                            </li>
+                            <li class="pipe-item" id="stage3">
+                                <span class="pipe-icon"><i class="fa-regular fa-circle"></i></span>
+                                <div class="pipe-text">
+                                    <div class="pipe-name">03 Mesh Generation</div>
+                                    <div class="pipe-desc">Surface reconstruction & cleanup</div>
+                                </div>
+                            </li>
+                            <li class="pipe-item" id="stage4">
+                                <span class="pipe-icon"><i class="fa-regular fa-circle"></i></span>
+                                <div class="pipe-text">
+                                    <div class="pipe-name">04 Texture</div>
+                                    <div class="pipe-desc">UV atlas / vertex color projection</div>
+                                </div>
+                            </li>
+                            <li class="pipe-item" id="stage5">
+                                <span class="pipe-icon"><i class="fa-regular fa-circle"></i></span>
+                                <div class="pipe-text">
+                                    <div class="pipe-name">05 Validation</div>
+                                    <div class="pipe-desc">Watertight / manifold / dimensions</div>
+                                </div>
+                            </li>
+                            <li class="pipe-item" id="stage6">
+                                <span class="pipe-icon"><i class="fa-regular fa-circle"></i></span>
+                                <div class="pipe-text">
+                                    <div class="pipe-name">06 Export</div>
+                                    <div class="pipe-desc">GLB / OBJ / STL / PLY / 3MF</div>
+                                </div>
+                            </li>
+                        </ul>
+                        <div class="progress-container mt-2">
+                            <div class="progress-bar-wrapper">
+                                <div class="progress-bar" id="progressBar"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- AI LAB -->
+                    <div class="section-block collapsible" id="aiTrainingPanel">
+                        <div class="section-title">AI LAB <span class="arrow">▾</span></div>
+                        <div class="ai-lab-content">
+                            <div class="setting-row">
+                                <span>Dataset</span>
+                                <span>42 ready</span>
+                            </div>
+                            <div class="setting-row">
+                                <span>Model</span>
+                                <span>TRELLIS</span>
+                            </div>
+                            <div class="setting-row">
+                                <span>Batch Size</span>
+                                <select id="batchSizeSelect" class="input-select">
+                                    <option value="8" selected>8</option>
+                                    <option value="16">16</option>
+                                </select>
+                            </div>
+                            <div class="button-row mt-2">
+                                <button class="btn btn-secondary btn-sm" id="btnDownloadDatasets"><i class="fa-solid fa-cloud-arrow-down"></i> Sync</button>
+                                <button class="btn btn-primary btn-sm" id="btnStartTraining"><i class="fa-solid fa-brain"></i> Train</button>
+                            </div>
+                            <div id="trainingTracker" style="display:none;" class="mt-2">
+                                <div class="training-status"><span id="trainingStatusText">Training...</span></div>
+                                <div class="progress-bar-wrapper mt-1"><div class="progress-bar" id="trainingProgressBar"></div></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- CENTER 3D VIEWPORT -->
+            <section class="viewport-section">
+                <div class="viewport-header">
+                    <h2><i class="fa-solid fa-cube"></i> INTERACTIVE 3D VIEWPORT</h2>
+                    <div class="viewport-toolbar">
+                        <button class="tool-btn active"><i class="fa-solid fa-rotate"></i> Orbit</button>
+                        <button class="tool-btn"><i class="fa-solid fa-arrows-up-down-left-right"></i> Pan</button>
+                        <button class="tool-btn"><i class="fa-solid fa-magnifying-glass"></i> Zoom</button>
+                        <button class="tool-btn" id="btnResetCam"><i class="fa-solid fa-arrows-to-dot"></i> Reset</button>
+                    </div>
+                </div>
+
+                <div class="canvas-wrapper" id="canvasContainer">
+                    <div class="viewport-placeholder" id="viewportPlaceholder">
+                        <div class="placeholder-inner">
+                            <div class="placeholder-icon"><i class="fa-solid fa-cube"></i></div>
+                            <h3>3D MODEL PREVIEW</h3>
+                            <p>No scan loaded</p>
+                            <span>Capture or upload a scan to begin reconstruction.</span>
+                            <div class="placeholder-actions">
+                                <button class="btn btn-primary btn-glow" onclick="document.getElementById('modeTurntableBtn').click()">Start Scan</button>
+                                <button class="btn btn-secondary" onclick="document.getElementById('modeAiDepthBtn').click()">Single Photo</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="generating-overlay" id="generatingOverlay" style="display: none;">
+                        <div class="generating-spinner"></div>
+                        <p>Generating geometry...</p>
+                        <div class="generating-progress">
+                            <div class="generating-bar" id="generatingBar"></div>
+                        </div>
+                    </div>
+
+                    <!-- Axis Indicator -->
+                    <div class="axis-gizmo">
+                        <div class="axis x">X</div>
+                        <div class="axis y">Y</div>
+                        <div class="axis z">Z</div>
+                    </div>
+
+                    <!-- Right Top Controls -->
+                    <div class="viewport-right-controls">
+                        <button class="tool-icon-btn active" title="Grid"><i class="fa-solid fa-border-all"></i></button>
+                        <button class="tool-icon-btn active" title="Axes"><i class="fa-solid fa-up-down-left-right"></i></button>
+                        <button class="tool-icon-btn active" title="Perspective"><i class="fa-solid fa-cube"></i></button>
+                    </div>
+                </div>
+
+                <div class="viewport-footer">
+                    <div class="view-toggles">
+                        <button class="toggle-btn active" id="btnSolid">Shaded</button>
+                        <button class="toggle-btn" id="btnWireframe">Wireframe</button>
+                        <button class="toggle-btn" id="btnClay">X-Ray</button>
+                        <button class="toggle-btn" id="btnTextured">Texture</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- RIGHT SIDEBAR (MODEL INSPECTOR) -->
+            <aside class="sidebar right-sidebar">
+                <div class="sidebar-header">
+                    <h2><i class="fa-solid fa-microscope"></i> MODEL INSPECTOR</h2>
+                </div>
+
+                <div class="sidebar-scrollable">
+                    <div class="section-block">
+                        <div class="inspector-status">
+                            Model Status
+                            <span class="status-val"><span class="dot green"></span> Valid Mesh</span>
+                        </div>
+                    </div>
+
+                    <div class="section-block" id="topologyCard">
+                        <div class="section-title">DIMENSIONS</div>
+                        <div class="dim-grid">
+                            <div class="dim-item"><span class="dim-axis x">X</span> <span class="val-mono" id="dimX">--</span></div>
+                            <div class="dim-item"><span class="dim-axis y">Y</span> <span class="val-mono" id="dimY">--</span></div>
+                            <div class="dim-item"><span class="dim-axis z">Z</span> <span class="val-mono" id="dimZ">--</span></div>
+                        </div>
+                        <div class="dim-summary mt-2">
+                            <span>Bounding Box</span>
+                            <span class="val-mono" id="topoObbDimensions">--</span>
+                        </div>
+                    </div>
+
+                    <div class="section-block">
+                        <div class="section-title">MESH STATISTICS</div>
+                        <div class="stat-row">
+                            <span>Vertices</span>
+                            <span class="val-mono" id="statVerts">--</span>
+                        </div>
+                        <div class="stat-row">
+                            <span>Faces</span>
+                            <span class="val-mono" id="statFaces">--</span>
+                        </div>
+                        <div class="stat-row">
+                            <span>Triangles</span>
+                            <span class="val-mono" id="topoFaces">--</span>
+                        </div>
+                        <div class="stat-row">
+                            <span>Volume</span>
+                            <span class="val-mono" id="topoVolume">--</span>
+                        </div>
+                    </div>
+
+                    <div class="section-block" id="scanQualityCard">
+                        <div class="section-title">METROLOGY</div>
+                        <div class="stat-row">
+                            <span>Accuracy Estimate</span>
+                            <span class="val-mono val-accent">±0.18 mm</span>
+                        </div>
+                        <div class="stat-row">
+                            <span>Scale Reference</span>
+                            <span class="val-mono">50.00 mm</span>
+                        </div>
+                        <div class="stat-row">
+                            <span>Confidence</span>
+                            <span class="val-mono" id="scanQualityScoreBadge">--%</span>
+                        </div>
+                        <!-- Hidden elements so JS doesn't crash -->
+                        <div style="display:none">
+                            <span id="qCoverage"></span><span id="qMask"></span><span id="qCalib"></span><span id="qGeom"></span><span id="qScale"></span>
+                        </div>
+                    </div>
+
+                    <div class="section-block">
+                        <div class="section-title">VALIDATION</div>
+                        <div class="validation-list">
+                            <div class="val-item"><span class="check" id="topoWatertight"><i class="fa-solid fa-circle-check"></i></span> Watertight</div>
+                            <div class="val-item"><span class="check"><i class="fa-solid fa-circle-check"></i></span> Manifold</div>
+                            <div class="val-item"><span class="check"><i class="fa-solid fa-circle-check"></i></span> No self-intersections</div>
+                            <div class="val-item"><span class="check"><i class="fa-solid fa-circle-check"></i></span> Normals consistent</div>
+                        </div>
+                        <div class="validation-overall mt-2">
+                            <span>Overall:</span>
+                            <span class="badge-valid">VALID MESH</span>
+                        </div>
+                    </div>
+
+                    <!-- Hidden elements so JS doesn't crash -->
+                    <div id="camCalibBadge" style="display:none"></div>
+                    <div id="scaleRefBadge" style="display:none"></div>
+                    <div id="consoleLogs" style="display:none"></div>
+
+                    <div class="flex-grow"></div>
+
+                    <div class="section-block export-section" id="exportBar">
+                        <div class="section-title">EXPORT MODEL</div>
+                        <div class="export-controls">
+                            <span>Format:</span>
+                            <select class="input-select w-full" id="exportFormatSelect">
+                                <option value="stl">STL</option>
+                                <option value="obj">OBJ</option>
+                                <option value="glb" selected>GLB</option>
+                                <option value="ply">PLY</option>
+                            </select>
+                        </div>
+                        <div class="export-buttons mt-2">
+                            <button class="btn btn-primary btn-block btn-glow" id="downloadStlBtn"><i class="fa-solid fa-download"></i> Export Model</button>
+                            <button id="downloadGlbBtn" style="display:none"></button>
+                            <button id="downloadPlyBtn" style="display:none"></button>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+        </div>
+
+        <!-- ======================== GALLERY VIEW ======================== -->
+        <div class="gallery-view" id="galleryView" style="display: none;">
+            <div class="gallery-toolbar">
+                <div class="gallery-toolbar-left">
+                    <h2><i class="fa-solid fa-layer-group"></i> Model Gallery</h2>
+                    <span class="gallery-total" id="galleryTotal">0 models</span>
+                </div>
+                <div class="gallery-toolbar-right">
+                    <button class="btn btn-secondary btn-sm" id="btnScanExisting"><i class="fa-solid fa-magnifying-glass"></i> Import Existing</button>
+                    <button class="btn btn-secondary btn-sm" id="btnRefreshGallery"><i class="fa-solid fa-arrows-rotate"></i> Refresh</button>
+                </div>
+            </div>
+            <div class="gallery-grid" id="galleryGrid">
+                <div class="gallery-empty" id="galleryEmpty">
+                    <i class="fa-solid fa-box-open"></i>
+                    <h3>No Models Yet</h3>
+                    <p>Generate your first 3D model to see it here.</p>
+                    <button class="btn btn-primary btn-glow" id="btnGalleryToWorkspace">
+                        <i class="fa-solid fa-plus"></i> Create New Scan
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ======================== ADMIN VIEW ======================== -->
+        <div class="admin-view" id="adminView" style="display: none;">
+            <div class="admin-header">
+                <h2><i class="fa-solid fa-shield-halved"></i> Admin Dashboard</h2>
+                <div class="admin-stats">
+                    <div class="stat-card">
+                        <i class="fa-solid fa-users"></i>
+                        <div>
+                            <span class="stat-value" id="adminTotalUsers">0</span>
+                            <span class="stat-label">Total Users</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <i class="fa-solid fa-cubes"></i>
+                        <div>
+                            <span class="stat-value" id="adminTotalModels">0</span>
+                            <span class="stat-label">Total Models</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="admin-content">
+                <div class="panel">
+                    <div class="panel-header">
+                        <h3><i class="fa-solid fa-users-gear"></i> Registered Users</h3>
+                        <button class="btn btn-secondary btn-sm" id="btnAdminRefresh"><i class="fa-solid fa-arrows-rotate"></i> Refresh</button>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="admin-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Username</th>
+                                    <th>Email</th>
+                                    <th>Role</th>
+                                    <th>Joined</th>
+                                </tr>
+                            </thead>
+                            <tbody id="adminUsersTableBody">
+                                <!-- Users will be injected here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- BOTTOM STATUS BAR -->
+        <footer class="bottom-status-bar">
+            <div class="status-left">
+                <span><span class="dot green pulse"></span> Camera Ready</span>
+                <span><span class="dot green pulse"></span> Turntable Ready</span>
+            </div>
+            <div class="status-center">
+                <span>24 / 24 Frames</span>
+                <span>30 FPS</span>
+                <span>GPU 42%</span>
+                <span>RAM 5.2 GB</span>
+            </div>
+            <div class="status-right">
+                <span id="statusBarText">System Ready</span>
+            </div>
+        </footer>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
