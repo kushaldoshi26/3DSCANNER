@@ -1,0 +1,334 @@
+{
+  "source": "User-supplied printable STL files",
+  "blender_version": "5.2.2 LTS",
+  "units": "Original STL numerical units, assumed millimetres. STL does not encode units.",
+  "coordinate_mapping": "Blender original XYZ (Z-up) exported as glTF XYZ (Y-up): (x, z, -y). Each mesh is centered independently.",
+  "assembly_status": "Visual assembly is inferred from part geometry and requires confirmation against an assembled reference.",
+  "parts": {
+    "frame": {
+      "source_file": "frame.stl",
+      "source_size_bytes": 15586484,
+      "source_bounds_min": [
+        -68.75,
+        0.0,
+        -68.75
+      ],
+      "source_bounds_max": [
+        68.75,
+        28.5,
+        68.75
+      ],
+      "source_dimensions": [
+        137.5,
+        28.5,
+        137.5
+      ],
+      "source_center": [
+        0.0,
+        14.25,
+        0.0
+      ],
+      "source_triangles": 311728,
+      "gltf_dimensions": [
+        137.5,
+        137.5,
+        28.5
+      ],
+      "recenter_translation_blender": [
+        -0.0,
+        -14.25,
+        -0.0
+      ],
+      "path": "/models/frame.glb",
+      "after_planar_triangles": 23460,
+      "exported_triangles": 23460,
+      "triangle_reduction_percent": 92.47,
+      "glb_size_bytes": 675496
+    },
+    "top_plate": {
+      "source_file": "top plate.stl",
+      "source_size_bytes": 1175984,
+      "source_bounds_min": [
+        -68.75,
+        -68.75,
+        -2.0
+      ],
+      "source_bounds_max": [
+        68.75,
+        68.75,
+        10.0
+      ],
+      "source_dimensions": [
+        137.5,
+        137.5,
+        12.0
+      ],
+      "source_center": [
+        0.0,
+        0.0,
+        4.0
+      ],
+      "source_triangles": 23518,
+      "gltf_dimensions": [
+        137.5,
+        12.0,
+        137.5
+      ],
+      "recenter_translation_blender": [
+        -0.0,
+        -0.0,
+        -4.0
+      ],
+      "path": "/models/top_plate.glb",
+      "after_planar_triangles": 14878,
+      "exported_triangles": 14878,
+      "triangle_reduction_percent": 36.74,
+      "glb_size_bytes": 458980
+    },
+    "small_gear": {
+      "source_file": "small gear.stl",
+      "source_size_bytes": 341284,
+      "source_bounds_min": [
+        -11.668438911437988,
+        -12.0,
+        0.0
+      ],
+      "source_bounds_max": [
+        11.668438911437988,
+        12.0,
+        7.0
+      ],
+      "source_dimensions": [
+        23.336877822875977,
+        24.0,
+        7.0
+      ],
+      "source_center": [
+        0.0,
+        0.0,
+        3.5
+      ],
+      "source_triangles": 6824,
+      "gltf_dimensions": [
+        23.336877822875977,
+        7.0,
+        24.0
+      ],
+      "recenter_translation_blender": [
+        -0.0,
+        -0.0,
+        -3.5
+      ],
+      "path": "/models/small_gear.glb",
+      "after_planar_triangles": 3460,
+      "exported_triangles": 3460,
+      "triangle_reduction_percent": 49.3,
+      "glb_size_bytes": 105300
+    },
+    "nut_holder": {
+      "source_file": "nutholder.stl",
+      "source_size_bytes": 2612684,
+      "source_bounds_min": [
+        -10.970677375793457,
+        0.0,
+        -4.5
+      ],
+      "source_bounds_max": [
+        10.970677375793457,
+        3.5,
+        4.5
+      ],
+      "source_dimensions": [
+        21.941354751586914,
+        3.5,
+        9.0
+      ],
+      "source_center": [
+        0.0,
+        1.75,
+        0.0
+      ],
+      "source_triangles": 52252,
+      "gltf_dimensions": [
+        21.941354751586914,
+        9.0,
+        3.5
+      ],
+      "recenter_translation_blender": [
+        -0.0,
+        -1.75,
+        -0.0
+      ],
+      "path": "/models/nut_holder.glb",
+      "after_planar_triangles": 9684,
+      "exported_triangles": 9684,
+      "triangle_reduction_percent": 81.47,
+      "glb_size_bytes": 291692
+    },
+    "bearing_holder": {
+      "source_file": "bearing holder.stl",
+      "source_size_bytes": 1541384,
+      "source_bounds_min": [
+        -30.996000289916992,
+        0.0,
+        -13.5
+      ],
+      "source_bounds_max": [
+        38.540000915527344,
+        11.0,
+        13.5
+      ],
+      "source_dimensions": [
+        69.53600120544434,
+        11.0,
+        27.0
+      ],
+      "source_center": [
+        3.772000312805176,
+        5.5,
+        0.0
+      ],
+      "source_triangles": 30826,
+      "gltf_dimensions": [
+        69.53600120544434,
+        27.0,
+        11.0
+      ],
+      "recenter_translation_blender": [
+        -3.772000312805176,
+        -5.5,
+        -0.0
+      ],
+      "path": "/models/bearing_holder.glb",
+      "after_planar_triangles": 12074,
+      "exported_triangles": 10000,
+      "triangle_reduction_percent": 67.56,
+      "glb_size_bytes": 297964
+    },
+    "camera_stand": {
+      "source_file": "camera stand/camera stand in 1 part (requires 220mm print bed and supports).stl",
+      "source_size_bytes": 848384,
+      "source_bounds_min": [
+        -31.132083892822266,
+        -18.451025009155273,
+        -181.22079467773438
+      ],
+      "source_bounds_max": [
+        38.68842315673828,
+        61.921817779541016,
+        44.882415771484375
+      ],
+      "source_dimensions": [
+        69.82050704956055,
+        80.37284278869629,
+        226.10321044921875
+      ],
+      "source_center": [
+        3.778169631958008,
+        21.735397338867188,
+        -68.169189453125
+      ],
+      "source_triangles": 16966,
+      "gltf_dimensions": [
+        69.82050704956055,
+        226.10321044921875,
+        80.37284278869629
+      ],
+      "recenter_translation_blender": [
+        -3.778169631958008,
+        -21.735397338867188,
+        68.169189453125
+      ],
+      "path": "/models/camera_stand.glb",
+      "after_planar_triangles": 6648,
+      "exported_triangles": 6648,
+      "triangle_reduction_percent": 60.82,
+      "glb_size_bytes": 199228
+    }
+  },
+  "totals": {
+    "source_triangles": 442114,
+    "exported_triangles": 68130,
+    "glb_size_bytes": 2028660
+  },
+  "assembly_preview": {
+    "coordinate_system": "Three.js Y-up, for already-centered GLB assets",
+    "uniform_scale": 0.023,
+    "status": "Inferred visual arrangement; requires assembled project photo to validate mechanical alignment.",
+    "parts": {
+      "frame": {
+        "position": [
+          0,
+          -1.4,
+          0
+        ],
+        "rotation": [
+          1.5707963267948966,
+          0,
+          0
+        ]
+      },
+      "top_plate": {
+        "position": [
+          0,
+          -0.93,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "small_gear": {
+        "position": [
+          0.7,
+          -1.3,
+          -0.5
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "bearing_holder": {
+        "position": [
+          0,
+          -1.16,
+          0
+        ],
+        "rotation": [
+          1.5707963267948966,
+          0,
+          0
+        ]
+      },
+      "nut_holder": {
+        "position": [
+          -0.4,
+          -1.25,
+          0.9
+        ],
+        "rotation": [
+          1.5707963267948966,
+          0,
+          0
+        ]
+      },
+      "camera_stand": {
+        "position": [
+          2.25,
+          0.873,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    "poster": "/models/assembly-poster.png"
+  }
+}
