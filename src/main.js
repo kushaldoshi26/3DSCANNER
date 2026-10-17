@@ -33,16 +33,14 @@ let scrollState = { position: 0 };
 let anchors = [];
 let renderRequested = true;
 let failed = false;
-let baseHardware = null;
-
-// Realistic White / Porcelain PLA palette matching the physical build
+// Curated distinctive color palette for each component
 const PARTS = {
-  frame: { label: 'MAIN FRAME', number: '01', color: '#ece8e1', roughness: .42, metalness: .06, position: [0, -1.4, 0], rotation: [halfPi, 0, 0] },
-  top_plate: { label: 'TOP PLATE', number: '02', color: '#f6f4ee', roughness: .38, metalness: .06, position: [0, -.93, 0], rotation: [0, 0, 0] },
-  small_gear: { label: 'SMALL GEAR', number: '03', color: '#faf8f2', roughness: .35, metalness: .06, position: [.7, -1.3, -.5], rotation: [0, 0, 0] },
-  nut_holder: { label: 'NUT HOLDER', number: '04', color: '#f6f4ee', roughness: .40, metalness: .06, position: [-.4, -1.25, .9], rotation: [halfPi, 0, 0] },
-  bearing_holder: { label: 'BEARING HOLDER', number: '05', color: '#faf9f5', roughness: .40, metalness: .06, position: [0, -1.16, 0], rotation: [halfPi, 0, 0] },
-  camera_stand: { label: 'CAMERA STAND', number: '06', color: '#ece8e1', roughness: .42, metalness: .06, position: [2.25, .873, 0], rotation: [0, 0, 0] },
+  frame: { label: 'MAIN FRAME', number: '01', color: '#445761', roughness: .34, metalness: .32, position: [0, -1.4, 0], rotation: [halfPi, 0, 0] },
+  top_plate: { label: 'TOP PLATE', number: '02', color: '#ded5c3', roughness: .28, metalness: .30, position: [0, -.93, 0], rotation: [0, 0, 0] },
+  small_gear: { label: 'SMALL GEAR', number: '03', color: '#d97b2b', roughness: .26, metalness: .48, position: [.7, -1.3, -.5], rotation: [0, 0, 0] },
+  nut_holder: { label: 'NUT HOLDER', number: '04', color: '#e5ded2', roughness: .32, metalness: .25, position: [-.4, -1.25, .9], rotation: [halfPi, 0, 0] },
+  bearing_holder: { label: 'BEARING HOLDER', number: '05', color: '#b88344', roughness: .29, metalness: .42, position: [0, -1.16, 0], rotation: [halfPi, 0, 0] },
+  camera_stand: { label: 'CAMERA STAND', number: '06', color: '#4e626c', roughness: .36, metalness: .32, position: [2.25, .873, 0], rotation: [0, 0, 0] },
 };
 
 // Placements are a visual assembly, not validated mechanical CAD constraints.
@@ -216,8 +214,6 @@ function setupScene() {
   fill.position.set(4, 0, 7); scene.add(fill);
   assembly = new THREE.Group();
   scene.add(assembly);
-  baseHardware = createBaseHardware();
-  assembly.add(baseHardware.group);
   floor = new THREE.Group(); assembly.add(floor);
   floor.position.y = -1.87;
   const points = [];
@@ -324,19 +320,6 @@ function applyScene(time) {
     if (material.transparent !== (opacity < .94)) { material.transparent = opacity < .94; material.needsUpdate = true; }
     material.opacity = opacity >= .94 ? 1 : opacity; material.depthWrite = !material.transparent;
     model.traverse((node) => { if (node.isMesh) node.castShadow = opacity > .8; });
-  }
-  if (baseHardware) {
-    if (index === 4) {
-      baseHardware.motor.position.y = lerp(-1.62, -2.05, t);
-      baseHardware.rail.position.x = lerp(0.55, 0.95, t);
-      baseHardware.arduino.position.z = lerp(0.42, 0.78, t);
-      baseHardware.driver.position.x = lerp(1.05, 1.35, t);
-    } else {
-      baseHardware.motor.position.set(0.7, -1.62, -0.5);
-      baseHardware.rail.position.set(0.55, -1.33, 0);
-      baseHardware.arduino.position.set(-0.25, -1.68, 0.42);
-      baseHardware.driver.position.set(1.05, -1.68, -0.08);
-    }
   }
   const floorOpacity = index < 1 ? lerp(.7, .3, t) : index === 4 ? lerp(.2, .7, t) : .12;
   ring.material.opacity = floorOpacity * .3;
