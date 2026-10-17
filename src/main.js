@@ -7,7 +7,7 @@ import {
   createBearingAssembly,
   createNutHolderNuts,
   createCameraSensor,
-  createBaseHardware,
+  createInternalHardware,
 } from './hardware-models.js';
 
 gsap.registerPlugin(ScrollTrigger);
@@ -33,6 +33,8 @@ let scrollState = { position: 0 };
 let anchors = [];
 let renderRequested = true;
 let failed = false;
+let internalHardware = null;
+
 // Curated distinctive color palette for each component
 const PARTS = {
   frame: { label: 'MAIN FRAME', number: '01', color: '#445761', roughness: .34, metalness: .32, position: [0, -1.4, 0], rotation: [halfPi, 0, 0] },
@@ -42,6 +44,22 @@ const PARTS = {
   bearing_holder: { label: 'BEARING HOLDER', number: '05', color: '#b88344', roughness: .29, metalness: .42, position: [0, -1.16, 0], rotation: [halfPi, 0, 0] },
   camera_stand: { label: 'CAMERA STAND', number: '06', color: '#4e626c', roughness: .36, metalness: .32, position: [2.25, .873, 0], rotation: [0, 0, 0] },
 };
+
+// Exact coordinates for internal hardware components per story chapter
+const HARDWARE_SHOTS = [
+  // 0: Assembled View
+  { rail: [0.60, -1.52, 0], motor: [0.70, -1.62, -0.5], arduino: [-0.35, -1.72, 0.38], driver: [0.92, -1.72, 0.05] },
+  // 1: The Structure (Platter lifts to reveal frame interior)
+  { rail: [0.60, -1.62, 0], motor: [0.70, -1.72, -0.5], arduino: [-0.35, -1.82, 0.38], driver: [0.92, -1.82, 0.05] },
+  // 2: The Mechanism (Zoom into gear & drive system)
+  { rail: [0.60, -2.10, 0], motor: [-0.70, 0.40, 0.15], arduino: [-0.35, -2.10, 0.38], driver: [0.92, -2.10, 0.05] },
+  // 3: The Perspective (Camera stand focus)
+  { rail: [0.60, -1.62, 0], motor: [0.70, -1.72, -0.5], arduino: [-0.35, -1.82, 0.38], driver: [0.92, -1.82, 0.05] },
+  // 4: Exploded View (Perfect vertical & radial tier separation, zero overlap)
+  { rail: [1.15, -1.95, 0], motor: [0.70, -1.95, -0.5], arduino: [-0.35, -2.05, 0.38], driver: [0.92, -2.05, 0.05] },
+  // 5: Back to Whole (Re-assembled)
+  { rail: [0.60, -1.52, 0], motor: [0.70, -1.62, -0.5], arduino: [-0.35, -1.72, 0.38], driver: [0.92, -1.72, 0.05] },
+];
 
 // Placements are a visual assembly, not validated mechanical CAD constraints.
 // Coordinates use the original STL numerical units at a common 0.023 scale.
@@ -214,6 +232,8 @@ function setupScene() {
   fill.position.set(4, 0, 7); scene.add(fill);
   assembly = new THREE.Group();
   scene.add(assembly);
+  internalHardware = createInternalHardware();
+  assembly.add(internalHardware.group);
   floor = new THREE.Group(); assembly.add(floor);
   floor.position.y = -1.87;
   const points = [];
@@ -320,6 +340,30 @@ function applyScene(time) {
     if (material.transparent !== (opacity < .94)) { material.transparent = opacity < .94; material.needsUpdate = true; }
     material.opacity = opacity >= .94 ? 1 : opacity; material.depthWrite = !material.transparent;
     model.traverse((node) => { if (node.isMesh) node.castShadow = opacity > .8; });
+  }
+  if (internalHardware) {
+    const hwA = HARDWARE_SHOTS[index];
+    const hwB = HARDWARE_SHOTS[index + 1];
+    internalHardware.rail.position.set(
+      lerp(hwA.rail[0], hwB.rail[0], t),
+      lerp(hwA.rail[1], hwB.rail[1], t),
+      lerp(hwA.rail[2], hwB.rail[2], t)
+    );
+    internalHardware.motor.position.set(
+      lerp(hwA.motor[0], hwB.motor[0], t),
+      lerp(hwA.motor[1], hwB.motor[1], t),
+      lerp(hwA.motor[2], hwB.motor[2], t)
+    );
+    internalHardware.arduino.position.set(
+      lerp(hwA.arduino[0], hwB.arduino[0], t),
+      lerp(hwA.arduino[1], hwB.arduino[1], t),
+      lerp(hwA.arduino[2], hwB.arduino[2], t)
+    );
+    internalHardware.driver.position.set(
+      lerp(hwA.driver[0], hwB.driver[0], t),
+      lerp(hwA.driver[1], hwB.driver[1], t),
+      lerp(hwA.driver[2], hwB.driver[2], t)
+    );
   }
   const floorOpacity = index < 1 ? lerp(.7, .3, t) : index === 4 ? lerp(.2, .7, t) : .12;
   ring.material.opacity = floorOpacity * .3;
