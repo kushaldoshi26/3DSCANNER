@@ -1,11 +1,11 @@
 services:
   - type: static
     name: 3dscanner
-    buildCommand: npm install && npm run build
+    buildCommand: npm ci && npm run build
     staticPublishPath: ./dist
     envVars:
       - key: NODE_VERSION
-        value: 20
+        value: 22
     headers:
       - path: /*
         name: Cache-Control

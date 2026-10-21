@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.sites-runtime/
+model-reports/
+*.log
+.DS_Store
+
+__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+companion/jobs/
+.openai/

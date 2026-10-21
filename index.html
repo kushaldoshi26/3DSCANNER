@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#102630" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="description" content="A closer look at a 3D scanner. Explore its printed structure, mechanical details, and camera stand through an interactive assembly study." />
-    <title>FORM / 01 — A 3D scanner, deconstructed.</title>
+    <title>3D SCANNER — A 3D scanner, deconstructed.</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;450;500;550;600;650;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -16,18 +16,13 @@
     <a class="skip-link" href="#specifications">Skip to the component index</a>
 
     <header class="site-header">
-      <a class="wordmark" href="#overview" aria-label="FORM 01, back to overview">
-        <svg class="brand-symbol" width="27" height="30" viewBox="0 0 27 30" fill="none" aria-hidden="true"><path d="M13.5 1.5 25.5 8.5v13l-12 7-12-7v-13l12-7Z" stroke="currentColor" stroke-width="1.4"/><path d="m1.5 8.5 12 7 12-7M13.5 15.5v13M7.5 5l12 7v6.5" stroke="currentColor" stroke-width="1.4"/></svg>
-        <span>FORM <span class="wordmark-slash">/</span> 01</span>
+      <a class="wordmark" href="#overview" aria-label="3D SCANNER, back to home">
+        <span>3D SCANNER</span>
       </a>
-      <nav class="header-nav" aria-label="Main navigation">
-        <a class="nav-link" href="#overview">Overview</a>
-        <a class="nav-link" href="#components">Inside the build</a>
-        <a class="nav-index" href="#specifications">Component index <span aria-hidden="true">↗</span></a>
-      </nav>
+      <div id="global-navigation"></div>
     </header>
 
-    <div id="scene" aria-label="Interactive 3D view of the scanner's printed parts">
+    <div id="scene" aria-label="Interactive 3D view of the scanner and its electronics">
       <div class="scene-halo" aria-hidden="true"></div>
       <div class="scene-cross scene-cross--one" aria-hidden="true">+</div>
       <div class="scene-cross scene-cross--two" aria-hidden="true">+</div>
@@ -35,10 +30,17 @@
       <div id="loader" role="status" aria-live="polite">
         <span class="loader-prefix">ASSEMBLING THE VIEW</span>
         <div class="loader-track"><span id="load-progress"></span></div>
-        <span id="load-label">Loading the printed parts</span>
+        <span id="load-label">Loading structure and electronics</span>
       </div>
     </div>
 
+    <div id="scan-demo-panel" class="scan-demo-panel" hidden>
+      <div class="scan-demo-heading"><span>SIMULATED SCAN / SAMPLE VASE</span><button id="scan-demo-close" aria-label="Close scan demo">×</button></div>
+      <div class="scan-demo-status"><span id="scan-demo-status" role="status" aria-live="polite">01 / Capture · 0 of 36 views</span><b id="scan-demo-count">0%</b></div>
+      <div class="scan-demo-track"><span id="scan-demo-progress"></span></div>
+      <p id="scan-demo-explain">The object rotates so the camera can capture every side.</p>
+      <small>Illustration of the workflow. No hardware is connected.</small>
+    </div>
     <div class="scene-ui">
       <div class="scene-caption"><span class="status-light" aria-hidden="true"></span><span>Mechanical assembly study</span></div>
       <div class="scene-controls" aria-label="3D view controls">
@@ -51,12 +53,13 @@
           <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.5 7A5.5 5.5 0 1 1 3 10.2M2.5 7V2.5M2.5 7H7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
       </div>
-      <nav class="chapter-nav" aria-label="Explore the five chapters">
+      <nav class="chapter-nav" aria-label="Explore the six chapters">
         <a href="#overview" data-chapter="0" class="is-active" aria-label="Chapter 1: The complete form" aria-current="step"><span></span></a>
         <a href="#components" data-chapter="1" aria-label="Chapter 2: The structure"><span></span></a>
         <a href="#motion" data-chapter="2" aria-label="Chapter 3: The mechanism"><span></span></a>
         <a href="#perspective" data-chapter="3" aria-label="Chapter 4: The camera stand"><span></span></a>
-        <a href="#architecture" data-chapter="4" aria-label="Chapter 5: The complete architecture"><span></span></a>
+        <a href="#electronics" data-chapter="4" aria-label="Chapter 5: The electronics"><span></span></a>
+        <a href="#architecture" data-chapter="5" aria-label="Chapter 6: The complete architecture"><span></span></a>
       </nav>
     </div>
 
@@ -67,11 +70,13 @@
             <p class="eyebrow"><span class="eyebrow-line"></span> A 3D SCANNER. AN OPEN PERSPECTIVE.</p>
             <h1 id="hero-title">Every part. <br />A bigger <br /><span class="warm-type">picture.</span></h1>
             <p class="hero-description">A closer look at what brings a 3D scanner together. From the first layer to the complete form.</p>
+            <a class="text-link" href="./workspace.html" style="display:flex;margin-bottom:18px;color:#d8b79a">Open the workspace <span aria-hidden="true">↗</span></a>
+            <button id="scan-demo-start" class="scan-demo-start" type="button">Watch a sample scan ↗</button>
             <a class="text-link hero-explore" href="#components"><span class="round-arrow" aria-hidden="true">↓</span> Scroll to look inside</a>
-            <div class="hero-footnote"><span>PRINTED PARTS</span><span class="short-rule"></span><span>EXPLORED IN 3D</span></div>
+            <div class="hero-footnote"><span>11 COMPONENTS</span><span class="short-rule"></span><span>EXPLORED IN 3D</span></div>
           </div>
           <div class="hero-model-tag" aria-hidden="true"><span class="model-tag-line"></span><span>01 — THE COMPLETE FORM</span></div>
-          <div class="hero-side-label" aria-hidden="true">FORM / FUNCTION / PERSPECTIVE</div>
+          <div class="hero-side-label" aria-hidden="true">3D SCANNER / BUILD / CREATE</div>
         </section>
 
         <section id="components" class="chapter chapter--structure" data-stage="1" aria-labelledby="structure-title">
@@ -91,7 +96,7 @@
           <div class="chapter-content">
             <p class="eyebrow"><span class="chapter-number">02</span> THE MECHANISM</p>
             <h2 id="motion-title">Small parts. <br /><span class="warm-type">Considered</span> <br />details.</h2>
-            <p class="chapter-description">Move closer to the gear, nut holder, and bearing holder. The smaller pieces reveal another layer of the mechanical design.</p>
+            <p class="chapter-description">Move closer to the gear, nut holder, and bearing holder. The drive gear seats on the motor shaft. The bearing holder stays centred above the frame, while the nut holder belongs beneath the camera rail.</p>
             <dl class="part-notes part-notes--compact">
               <div><dt><span>02.1</span> Small gear</dt><dd>Toothed mechanical component</dd></div>
               <div><dt><span>02.2</span> Nut holder</dt><dd>Printed mounting component</dd></div>
@@ -113,11 +118,24 @@
           </div>
         </section>
 
-        <section id="architecture" class="chapter chapter--architecture" data-stage="4" aria-labelledby="architecture-title">
+        <section id="electronics" class="chapter chapter--electronics" data-stage="4" aria-labelledby="electronics-title">
           <div class="chapter-content">
-            <p class="eyebrow"><span class="chapter-number">04</span> THE WHOLE PICTURE</p>
+            <p class="eyebrow"><span class="chapter-number">04</span> CONTROL &amp; MOTION</p>
+            <h2 id="electronics-title">The brains.<br />The drive.<br /><span class="warm-type">The movement.</span></h2>
+            <p class="chapter-description">Beneath the platter, three components work together. The Arduino commands each step, the ULN2003 drives the coils, and the 28BYJ-48 motor turns the gear.</p>
+            <dl class="part-notes part-notes--compact">
+              <div><dt><span>07</span> Arduino Uno R3</dt><dd>Rear USB opening, inside the base</dd></div>
+              <div><dt><span>08</span> 28BYJ-48 motor</dt><dd>Shaft aligned beneath the drive gear</dd></div>
+              <div><dt><span>09</span> ULN2003 driver</dt><dd>Side pocket, clear of the motor</dd></div>
+            </dl>
+          </div>
+        </section>
+
+        <section id="architecture" class="chapter chapter--architecture" data-stage="5" aria-labelledby="architecture-title">
+          <div class="chapter-content">
+            <p class="eyebrow"><span class="chapter-number">05</span> THE WHOLE PICTURE</p>
             <h2 id="architecture-title">Built of parts.<br /><span class="warm-type">Seen as one.</span></h2>
-            <p class="chapter-description">Six printed designs. One mechanical story. Explore the exploded view, then keep scrolling to bring every part back together.</p>
+            <p class="chapter-description">Printed structure. Electronics. A bearing and a camera rail. One complete assembly. Explore the exploded view, then keep scrolling to bring every part back together.</p>
             <a class="text-link" href="#specifications">Explore the component index <span aria-hidden="true">↘</span></a>
           </div>
           <div class="architecture-note"><span class="tiny-cross" aria-hidden="true">+</span><span>BACK TO THE WHOLE<br /><span class="subtle">Every piece in its place</span></span></div>
@@ -126,31 +144,31 @@
 
       <section id="specifications" class="specifications" aria-labelledby="specifications-title">
         <div class="index-intro">
-          <p class="eyebrow"><span class="chapter-number">05</span> THE COMPONENT INDEX</p>
-          <div class="index-heading-row"><h2 id="specifications-title">The details<br />make the <span>whole.</span></h2><p>From digital geometry to a physical build.<br />An index of the original printable parts<br class="desktop-break" /> behind this interactive study.</p></div>
+          <p class="eyebrow"><span class="chapter-number">06</span> THE COMPONENT INDEX</p>
+          <div class="index-heading-row"><h2 id="specifications-title">The details<br />make the <span>whole.</span></h2><p>From digital geometry to a physical build.<br />An index of the printed and electronic parts<br class="desktop-break" /> behind this interactive study.</p></div>
         </div>
 
-        <div class="component-table" role="table" aria-label="Printed part designs">
+        <div class="component-table" role="table" aria-label="Scanner components">
           <div class="component-row component-row--heading" role="row"><span role="columnheader">NO.</span><span role="columnheader">COMPONENT</span><span role="columnheader">DESIGN NOTE</span><span role="columnheader">SOURCE</span></div>
           <div class="component-row" role="row"><span class="part-index" role="cell">01</span><h3 role="cell">Main frame</h3><p role="cell">The central structure around which this study is arranged.</p><span class="file-type" role="cell">STL</span></div>
           <div class="component-row" role="row"><span class="part-index" role="cell">02</span><h3 role="cell">Top plate</h3><p role="cell">A separate plate shown above the main frame.</p><span class="file-type" role="cell">STL</span></div>
           <div class="component-row" role="row"><span class="part-index" role="cell">03</span><h3 role="cell">Small gear</h3><p role="cell">The compact toothed component in the supplied design.</p><span class="file-type" role="cell">STL</span></div>
-          <div class="component-row" role="row"><span class="part-index" role="cell">04</span><h3 role="cell">Nut holder</h3><p role="cell">A printed holder, named as supplied in the source files.</p><span class="file-type" role="cell">STL</span></div>
+          <div class="component-row" role="row"><span class="part-index" role="cell">04</span><h3 role="cell">Nut holder</h3><p role="cell">Slides beneath the aluminium rail to secure the camera stand.</p><span class="file-type" role="cell">STL</span></div>
           <div class="component-row" role="row"><span class="part-index" role="cell">05</span><h3 role="cell">Bearing holder</h3><p role="cell">A printed support for the bearing assembly.</p><span class="file-type" role="cell">STL</span></div>
           <div class="component-row" role="row"><span class="part-index" role="cell">06</span><h3 role="cell">Camera stand</h3><p role="cell">Shown as one piece. Upper and lower halves are also supplied.</p><span class="file-type" role="cell">3 × STL</span></div>
-          <div class="component-row" role="row"><span class="part-index" role="cell">07</span><h3 role="cell">2020 Aluminum rail</h3><p role="cell">Anodized black structural rail connecting the frame and camera stand.</p><span class="file-type" role="cell">PROFILE</span></div>
-          <div class="component-row" role="row"><span class="part-index" role="cell">08</span><h3 role="cell">608 Ball bearing</h3><p role="cell">Chrome steel deep-groove ball bearing for smooth turntable rotation.</p><span class="file-type" role="cell">HARDWARE</span></div>
-          <div class="component-row" role="row"><span class="part-index" role="cell">09</span><h3 role="cell">28BYJ-48 Stepper</h3><p role="cell">5V geared stepper motor driving the small gear with brass D-shaft.</p><span class="file-type" role="cell">ACTUATOR</span></div>
-          <div class="component-row" role="row"><span class="part-index" role="cell">10</span><h3 role="cell">Arduino Uno & ULN2003</h3><p role="cell">Microcontroller and driver board running the scanner firmware.</p><span class="file-type" role="cell">ELECTRONICS</span></div>
-          <div class="component-row" role="row"><span class="part-index" role="cell">11</span><h3 role="cell">Depth camera sensor</h3><p role="cell">Optical stereo camera mounted on the articulated camera arm.</p><span class="file-type" role="cell">OPTICS</span></div>
+          <div class="component-row" role="row"><span class="part-index" role="cell">07</span><h3 role="cell">Arduino Uno R3</h3><p role="cell">Rear of the frame, with its USB-B connector at the cable opening.</p><span class="file-type" role="cell">STEP</span></div>
+          <div class="component-row" role="row"><span class="part-index" role="cell">08</span><h3 role="cell">28BYJ-48 stepper motor</h3><p role="cell">The geared motor below the small drive gear.</p><span class="file-type" role="cell">3D</span></div>
+          <div class="component-row" role="row"><span class="part-index" role="cell">09</span><h3 role="cell">ULN2003 driver</h3><p role="cell">Side of the frame, next to the Arduino and clear of the motor pocket.</p><span class="file-type" role="cell">STEP</span></div>
+          <div class="component-row" role="row"><span class="part-index" role="cell">10</span><h3 role="cell">2020 camera rail</h3><p role="cell">300 mm aluminium profile linking frame and camera stand.</p><span class="file-type" role="cell">3D</span></div>
+          <div class="component-row" role="row"><span class="part-index" role="cell">11</span><h3 role="cell">608 ball bearing</h3><p role="cell">22 mm outside diameter, 8 mm bore, 7 mm width.</p><span class="file-type" role="cell">3D</span></div>
         </div>
 
         <div class="index-bottom">
-          <div class="study-note"><span class="tiny-cross" aria-hidden="true">+</span><p>FORM / 01 is the presentation title for this mechanical assembly study using the supplied STL geometry. Positions are illustrative until verified against the physical build. Electronics and scan performance are not represented.</p></div>
+          <div class="study-note"><span class="tiny-cross" aria-hidden="true">+</span><p>Printed geometry and electronic boards come from the supplied files. The motor is reconstructed from the supplied reference images. Placement follows the original build photos and mounting geometry. The aluminium rail and 608 bearing are visual reference models. Physical fastener fit remains unverified.</p></div>
           <a class="download-link" href="./models/source-parts.zip" download><span>Get the source parts<small>8 STL FILES + PRINTING NOTES</small></span><svg width="21" height="21" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 17v4h14v-4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
         </div>
 
-        <footer class="site-footer"><a class="wordmark footer-wordmark" href="#overview">FORM <span class="wordmark-slash">/</span> 01</a><span>A 3D SCANNER EXPLORATION</span><a class="back-top" href="#overview">Back to the whole <span aria-hidden="true">↑</span></a></footer>
+        <footer class="site-footer"><a class="wordmark footer-wordmark" href="#overview">3D SCANNER</a><span>A 3D SCANNER EXPLORATION</span><a class="back-top" href="#overview">Back to the whole <span aria-hidden="true">↑</span></a></footer>
       </section>
     </main>
     <noscript><div class="noscript-note">Enable JavaScript to explore the interactive 3D model. You can still browse the component index and download the original parts.</div></noscript>

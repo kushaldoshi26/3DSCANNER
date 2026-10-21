@@ -3,7 +3,7 @@
   "blender_version": "5.2.2 LTS",
   "units": "Original STL numerical units, assumed millimetres. STL does not encode units.",
   "coordinate_mapping": "Blender original XYZ (Z-up) exported as glTF XYZ (Y-up): (x, z, -y). Each mesh is centered independently.",
-  "assembly_status": "Visual assembly is inferred from part geometry and requires confirmation against an assembled reference.",
+  "assembly_status": "Placement aligned to frame motor pocket and reference assembly photos; physical screw fit unverified.",
   "parts": {
     "frame": {
       "source_file": "frame.stl",
@@ -282,9 +282,9 @@
       },
       "small_gear": {
         "position": [
-          0.7,
-          -1.3,
-          -0.5
+          0.184,
+          -0.99,
+          -0.966
         ],
         "rotation": [
           0,
@@ -294,8 +294,8 @@
       },
       "bearing_holder": {
         "position": [
-          0,
-          -1.16,
+          0.08676,
+          -1.04925,
           0
         ],
         "rotation": [
@@ -306,9 +306,9 @@
       },
       "nut_holder": {
         "position": [
-          -0.4,
-          -1.25,
-          0.9
+          6.472,
+          -1.6,
+          0
         ],
         "rotation": [
           1.5707963267948966,
@@ -318,17 +318,68 @@
       },
       "camera_stand": {
         "position": [
-          2.25,
-          0.873,
+          6.4,
+          1.0464166,
           0
         ],
         "rotation": [
           0,
-          0,
+          -1.5707963267948966,
           0
         ]
       }
     },
     "poster": "/models/assembly-poster.png"
+  },
+  "electronics": {
+    "arduino_uno": {
+      "source": "Arduino Uno.STEP",
+      "conversion": "OpenCascade tessellation, original face colors with teal PCB",
+      "position": [
+        0,
+        -1.41,
+        0.64
+      ]
+    },
+    "stepper_driver": {
+      "source": "ULN2003 Stepper Driver.stp",
+      "conversion": "OpenCascade tessellation, presentation colors",
+      "position": [
+        -0.96,
+        -1.44,
+        0.25
+      ]
+    },
+    "stepper_motor": {
+      "source": "Step - 28BYJ-48.SLDPRT and supplied JPG reference views",
+      "conversion": "Procedural visual reconstruction; not an exact SolidWorks conversion",
+      "position": [
+        0,
+        -1.245,
+        -0.9315
+      ]
+    }
+  },
+  "assembly_reference": "https://www.instructables.com/3D-Printable-3D-Scanner-Using-Intel-Realsense-D435/",
+  "joint_alignment": {
+    "rail_position": [
+      3.1,
+      -1.43,
+      0
+    ],
+    "rail_end_x": 6.55,
+    "rail_top_y": -1.2,
+    "stand_foot_local_underside_y_mm": -97.6702880859375,
+    "stand_foot_world_underside_y": -1.2,
+    "stand_y_rotation_radians": -1.5707963267948966,
+    "status": "Rail fits beneath mounting foot; detailed physical fit remains unverified."
+  },
+  "presentation": {
+    "project_name": "3D SCANNER",
+    "front_facing_overview_yaw": 0.65,
+    "stand_closeup_yaw": 1.1,
+    "platter_radians_per_second": 0.28,
+    "planned_camera": "ESP32-CAM",
+    "future_camera": "Phone-as-webcam"
   }
 }
