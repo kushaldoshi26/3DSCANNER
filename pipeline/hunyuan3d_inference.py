@@ -14,8 +14,9 @@ def _release():
 
 def _native_imports():
     import sys
-    os.environ.setdefault('HY3DGEN_MODELS','D:/3dSCANNER/engines/models')
-    source=os.environ.get('SCANNER_HUNYUAN_SOURCE','D:/3dSCANNER/engines/Hunyuan3D-2-main')
+    root=Path(__file__).resolve().parent.parent
+    os.environ.setdefault('HY3DGEN_MODELS',str(root/'engines/models'))
+    source=os.environ.get('SCANNER_HUNYUAN_SOURCE',str(root/'engines/Hunyuan3D-2-main'))
     if (Path(source)/'hy3dgen').is_dir() and source not in sys.path:sys.path.insert(0,source)
     packages=str(Path(__file__).resolve().parent.parent/'engines/python-packages')
     if packages not in sys.path:sys.path.insert(0,packages)
