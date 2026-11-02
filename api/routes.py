@@ -44,6 +44,16 @@ router = APIRouter()
 BASE_DIR = Path(__file__).resolve().parent.parent / "data"
 JOBS: Dict[str, Dict] = {}
 
+
+def _persist_generation_job(job_id):
+    import time,json
+    job=JOBS[job_id];job['updated_at']=time.time()
+    if job.get('started_at'):
+        end=job.get('finished_at') or job['updated_at'];job['elapsed_seconds']=max(0,end-job['started_at'])
+    keys=('job_id','status','progress','step','mode','engine_requested','engine_used','engine_label','degraded','warnings','error','created_at','started_at','updated_at','finished_at','elapsed_seconds')
+    directory=BASE_DIR/'jobs'/job_id;directory.mkdir(parents=True,exist_ok=True)
+    temp=directory/'job_status.tmp';temp.write_text(json.dumps({key:job[key] for key in keys if key in job},indent=2),encoding='utf-8');temp.replace(directory/'job_status.json')
+
 def get_job_dirs(job_id: str):
     job_dir = BASE_DIR / "jobs" / job_id
     raw_dir = job_dir / "raw"
@@ -127,6 +137,12 @@ DEFAULT_SINGLE_IMAGE_ENGINE = "trellis"
 
 def _probe_engine(engine_key: str) -> bool:
     """Best-effort check that an engine's native package is importable."""
+    if engine_key == 'hunyuan3d':
+        from pipeline.ai.hunyuan3d_engine import Hunyuan3DEngine
+        return Hunyuan3DEngine().is_available()
+    if engine_key == "custom_3d":
+        from pipeline.training_data import checkpoint_status
+        return checkpoint_status()["ready"]
     spec = SINGLE_IMAGE_ENGINES.get(engine_key, {}).get("probe")
     if not spec:
         return False
@@ -346,7 +362,7 @@ def execute_single_image_3d_pipeline(job_id: str, image_filename: str, engine: s
 
 
 @router.get("/api/engines")
-async def list_single_image_engines():
+def list_single_image_engines():
     """
     Returns the available single-image 3D engines for the dashboard model selector,
     including whether each engine's native package is currently importable.
@@ -375,8 +391,9 @@ async def reconstruct_single_image(
     object_type: str = Form("organic"),
     texture: bool = Form(True),
     quality: str = Form("high"),
-    refine: bool = Form(True),
+    refine: bool = Form(False),
     printable: bool = Form(False),
+    photo_detail: bool = Form(False),
 ):
     """
     Unified single-image 3D reconstruction endpoint (Mode A: AI generation).
@@ -388,6 +405,28 @@ async def reconstruct_single_image(
 
     Returns job_id for status polling on /api/scan/status/{job_id}.
     """
+    if resolve_engine(engine) == "custom_3d":
+        from pipeline.training_data import checkpoint_status
+        status=checkpoint_status()
+        if not status["ready"]: raise HTTPException(409,status["reason"])
+    image_name = Path(file.filename or "image.png").name
+    if Path(image_name).suffix.lower() not in {'.png','.jpg','.jpeg','.webp','.bmp','.tif','.tiff'}:
+        raise HTTPException(status_code=400, detail="Upload a PNG, JPG, WEBP, BMP or TIFF image.")
+    if object_type not in {'organic','hard_surface'}:
+        raise HTTPException(status_code=400, detail="Unknown object type.")
+    # Bound the upload and reject corrupt images before an expensive engine starts.
+    image_bytes = await file.read(25 * 1024 * 1024 + 1)
+    if len(image_bytes) > 25 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Image exceeds the 25 MB upload limit.")
+    try:
+        from PIL import Image
+        import io
+        with Image.open(io.BytesIO(image_bytes)) as image:
+            if image.width * image.height > 40_000_000:
+                raise ValueError("Image exceeds 40 megapixels.")
+            image.verify()
+    except Exception as error:
+        raise HTTPException(status_code=400, detail=f"Invalid image: {error}") from error
     valid_quality = quality if quality in ("fast", "high", "ultra") else "high"
     job_id = str(uuid.uuid4())[:8]
     JOBS[job_id] = {
@@ -407,20 +446,23 @@ async def reconstruct_single_image(
     }
 
     job_dir, raw_dir, proc_dir, workspace_dir, out_dir = get_job_dirs(job_id)
-    file_loc = raw_dir / file.filename
-    with open(file_loc, "wb") as f:
-        shutil.copyfileobj(file.file, f)
+    file_loc = raw_dir / image_name
+    file_loc.write_bytes(image_bytes)
+    import time
+    JOBS[job_id]["created_at"]=time.time()
+    _persist_generation_job(job_id)
 
     background_tasks.add_task(
         execute_reconstruct_pipeline,
         job_id,
-        file.filename,
+        image_name,
         engine,
         object_type,
         texture,
         valid_quality,
         refine,
         printable,
+        photo_detail,
     )
     return {
         "job_id": job_id,
@@ -438,12 +480,18 @@ def execute_reconstruct_pipeline(
     quality: str,
     refine: bool = True,
     printable: bool = False,
+    photo_detail: bool = False,
 ):
     """Background worker for the unified /api/reconstruct endpoint."""
+    import time
+    JOBS[job_id]["started_at"]=time.time()
+    _persist_generation_job(job_id)
     def _progress_cb(stage, percent, message):
+        JOBS[job_id]["status"] = "processing"
         JOBS[job_id]["step"] = stage
         JOBS[job_id]["progress"] = max(JOBS[job_id]["progress"], percent)
         JOBS[job_id]["logs"].append(message)
+        _persist_generation_job(job_id)
 
     try:
         # The engine manager owns the full pipeline:
@@ -459,6 +507,7 @@ def execute_reconstruct_pipeline(
             progress_cb=_progress_cb,
             refine=refine,
             printable=printable,
+            photo_detail=photo_detail,
         )
         JOBS[job_id]["engine_used"] = result["engine_used"]
         JOBS[job_id]["engine_label"] = result["engine_label"]
@@ -469,6 +518,8 @@ def execute_reconstruct_pipeline(
                 f"Note: '{engine}' was unavailable — produced by '{result['engine_used']}'."
             )
 
+        JOBS[job_id]["warnings"] = result.get("warnings", [])
+        JOBS[job_id]["logs"].extend(f"Quality note: {warning}" for warning in result.get("warnings", []))
         JOBS[job_id]["quality"] = result.get("quality")
         JOBS[job_id]["files"] = result.get("files", {})
         JOBS[job_id]["mesh_path"] = result.get("mesh_path")
@@ -478,6 +529,8 @@ def execute_reconstruct_pipeline(
         JOBS[job_id]["progress"] = 100
         JOBS[job_id]["step"] = "Completed"
         JOBS[job_id]["status"] = "completed"
+        JOBS[job_id]["finished_at"]=time.time()
+        _persist_generation_job(job_id)
         JOBS[job_id]["logs"].append(
             f"Single-image 3D model created successfully via {result['engine_label']}!"
         )
@@ -495,6 +548,8 @@ def execute_reconstruct_pipeline(
         JOBS[job_id]["status"] = "failed"
         JOBS[job_id]["error"] = str(e)
         JOBS[job_id]["logs"].append(f"Error in reconstruction: {e}")
+        JOBS[job_id]["finished_at"]=time.time()
+        _persist_generation_job(job_id)
 
 
 def _torch_cuda_available() -> bool:
@@ -866,8 +921,22 @@ async def iot_camera_scan_trigger(
     return {"job_id": job_id, "mode": mode, "status": "queued", "message": "IoT trigger successful."}
 
 
+def _saved_generation_quality(out_dir):
+    import json
+    path = Path(out_dir) / 'quality_report.json'
+    if path.is_file():
+        try:
+            report = json.loads(path.read_text(encoding='utf-8'))
+            quality = report.get('quality', {})
+            if quality.get('metrics', {}).get('coordinate_space') == 'normalized':
+                return quality
+        except (OSError, ValueError, AttributeError):
+            pass
+    return None
+
+
 @router.get("/api/scan/topology/{job_id}")
-async def get_mesh_topology_report(job_id: str):
+def get_mesh_topology_report(job_id: str):
     """
     Returns 3D Printing Topology Inspector metrics (watertightness, faces, volume, printability score).
     """
@@ -878,6 +947,15 @@ async def get_mesh_topology_report(job_id: str):
         raise HTTPException(status_code=404, detail=f"3D model for job '{job_id}' not found on disk.")
 
     try:
+        saved = _saved_generation_quality(out_dir)
+        if saved:
+            metrics = saved['metrics']
+            dims = metrics['bounding_box_units']
+            return {'vertices': metrics['vertices'], 'faces': metrics['faces'],
+                'is_watertight': metrics['watertight'], 'is_winding_consistent': metrics['winding_consistent'],
+                'coordinate_space': 'normalized', 'scale_calibrated': False,
+                'dimensions_units': {'x': dims[0], 'y': dims[1], 'z': dims[2]},
+                'volume_units3': metrics.get('volume_units3')}
         report = analyze_mesh_topology(str(final_stl))
         return report
     except Exception as e:
@@ -885,7 +963,7 @@ async def get_mesh_topology_report(job_id: str):
 
 
 @router.get("/api/scan/dimensions/{job_id}")
-async def get_mesh_dimensions_report(job_id: str):
+def get_mesh_dimensions_report(job_id: str):
     """
     Returns exact physical Length, Width, Height, and Volume calculated via Oriented Bounding Box (OBB).
     """
@@ -902,12 +980,45 @@ async def get_mesh_dimensions_report(job_id: str):
         raise HTTPException(status_code=500, detail=f"Failed to calculate OBB dimensions: {e}")
 
 
+
+@router.get('/api/scan/report/{job_id}')
+def get_generation_summary(job_id: str):
+    """Public generation provenance and caveats, without local paths or logs."""
+    import re,json
+    if not re.fullmatch(r'[A-Za-z0-9_-]{1,64}',job_id):
+        raise HTTPException(400,'Invalid model identifier.')
+    path=BASE_DIR/'jobs'/job_id/'output'/'quality_report.json'
+    if not path.is_file():raise HTTPException(404,'Saved generation details are unavailable.')
+    try:
+        report=json.loads(path.read_text(encoding='utf-8'))
+        if not isinstance(report,dict):raise ValueError('Expected a report object')
+    except (ValueError,OSError) as error:
+        raise HTTPException(503,'Saved generation details could not be read.') from error
+    quality=report.get('quality') or {}
+    metrics=quality.get('metrics') or {}
+    source=report.get('source_detail') or report.get('appearance_trial') or report.get('detail_transfer') or {}
+    warnings=[]
+    for group in (report.get('warnings',[]),quality.get('warnings',[]),quality.get('errors',[])):
+        if isinstance(group,list):
+            warnings.extend(text for text in group if isinstance(text,str))
+    engine=report.get('engine_used')
+    label=report.get('engine_label') or SINGLE_IMAGE_ENGINES.get(engine,{}).get('label')
+    return {
+        'job_id':job_id,'engine_requested':report.get('engine_requested'),'engine_used':engine,
+        'engine_label':label,'degraded':report.get('degraded') is True,
+        'experimental':any(report.get(key) is True for key in ('experimental','benchmark_only')),
+        'appearance_only':report.get('appearance_only') is True or source.get('appearance_only') is True,
+        'mesh_passed':quality.get('passed') is True,'mesh_status':quality.get('status','NOT CHECKED'),
+        'relative_scale':metrics.get('coordinate_space')=='normalized',
+        'fine_geometry_verified':False,'warnings':list(dict.fromkeys(warnings)),
+    }
+
 @router.get("/api/scan/quality/{job_id}")
-async def get_scan_quality_report(job_id: str):
+def get_scan_quality_report(job_id: str):
     """
     Returns 3DINVENZA Scan Quality Score (Coverage, Calibration, Density, Scale Confidence, Diagnostics).
     """
-    if job_id in JOBS and "quality" in JOBS[job_id]:
+    if job_id in JOBS and isinstance(JOBS[job_id].get("quality"), dict):
         return JOBS[job_id]["quality"]
 
     job_dir, raw_dir, proc_dir, workspace_dir, out_dir = get_job_dirs(job_id)
@@ -915,6 +1026,10 @@ async def get_scan_quality_report(job_id: str):
 
     if not final_stl.exists():
         raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found.")
+
+    saved = _saved_generation_quality(out_dir)
+    if saved:
+        return saved
 
     try:
         mesh = trimesh.load(str(final_stl), force='mesh')
@@ -981,6 +1096,12 @@ async def get_latest_scan():
     completed = []
     for j in jobs_dir.glob("*"):
         if j.is_dir() and (j / "output" / "final_model.stl").exists():
+            saved=j/'job_status.json'
+            if saved.exists():
+                try:
+                    import json
+                    if json.loads(saved.read_text(encoding='utf-8')).get('status')!='completed':continue
+                except (ValueError,OSError):continue
             completed.append((j.stat().st_mtime, j.name))
 
     if not completed:
@@ -994,7 +1115,19 @@ async def get_latest_scan():
 @router.get("/api/scan/status/{job_id}")
 async def get_scan_status(job_id: str):
     if job_id in JOBS:
-        return JOBS[job_id]
+        import time
+        job=dict(JOBS[job_id])
+        if job.get('started_at'):job['elapsed_seconds']=max(0,(job.get('finished_at') or time.time())-job['started_at'])
+        return job
+    import re,json
+    if not re.fullmatch(r'[A-Za-z0-9_-]{1,64}',job_id):raise HTTPException(400,'Invalid job identifier.')
+    saved=BASE_DIR/'jobs'/job_id/'job_status.json'
+    if saved.is_file():
+        try:job=json.loads(saved.read_text(encoding='utf-8'))
+        except (ValueError,OSError):raise HTTPException(503,'Saved job status could not be read.')
+        if job.get('status') in ('queued','processing'):
+            job.update(status='failed',error='The server restarted before generation completed. Please retry.',step='Interrupted')
+        return job
     
     # Fallback to checking disk state
     job_dir, raw_dir, proc_dir, workspace_dir, out_dir = get_job_dirs(job_id)
@@ -1023,7 +1156,7 @@ async def download_scan_result(job_id: str, fmt: str):
         file_path = out_dir / "final_model.glb"
         media_type = "model/gltf-binary"
     elif fmt == "ply":
-        file_path = workspace_dir / "sparse_cloud.ply"
+        file_path = out_dir/"final_model.ply" if (out_dir/"final_model.ply").is_file() else workspace_dir/"sparse_cloud.ply"
         media_type = "application/x-ply"
     elif fmt == "obj":
         file_path = out_dir / "final_model.obj"
@@ -1087,20 +1220,21 @@ async def create_scan_legacy(files: List[UploadFile] = File(...)):
 # =========================================================================
 
 @router.get("/api/dataset/inventory")
-async def get_datasets_inventory_endpoint():
-    """Returns the list and count of all available 3D datasets on disk."""
-    try:
-        inventory = get_dataset_inventory()
-        processed_dir = BASE_DIR / "datasets" / "processed"
-        npz_count = len(list(processed_dir.glob("*.npz"))) if processed_dir.exists() else 0
-        return {
-            "total_3d_models": len(inventory),
-            "processed_npz_count": npz_count,
-            "categories": DATASET_SPECS,
-            "models": inventory
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch dataset inventory: {e}")
+def get_datasets_inventory_endpoint(detailed: bool=False, limit: int=Query(50,ge=1,le=200)):
+    from pipeline.training_data import training_readiness
+    root=BASE_DIR/'datasets'
+    paths=sorted(p for p in root.rglob('*') if p.is_file() and p.suffix.lower() in {'.stl','.obj','.glb','.gltf','.ply','.off'})
+    inventory=[]
+    for path in paths[:limit]:
+        entry={'filename':path.name,'filepath':str(path),'size_kb':round(path.stat().st_size/1024,2),'format':path.suffix[1:].upper(),'topology_checked':False}
+        if detailed:
+            try:
+                mesh=trimesh.load(str(path),force='mesh')
+                entry.update(vertices=len(mesh.vertices),faces=len(mesh.faces),is_watertight=bool(mesh.is_watertight),topology_checked=True)
+            except Exception as error:entry['error']=str(error)
+        inventory.append(entry)
+    return {'total_3d_models':len(paths),'processed_npz_count':len(list((root/'processed').glob('*.npz'))),
+            'categories':DATASET_SPECS,'models':inventory,'returned_models':len(inventory),'readiness':training_readiness(root)}
 
 
 def _async_dataset_download_worker():
@@ -1470,3 +1604,39 @@ async def admin_get_stats(current_user: dict = Depends(get_current_user)):
         "total_users": total_users,
         "total_models": total_models
     }
+
+
+@router.get('/api/scan/source-preview/{job_id}')
+def source_preview(job_id: str):
+    """Return only the isolated foreground produced by this scan's preprocessing."""
+    import re
+    if not re.fullmatch(r'[a-f0-9]{8,32}',job_id):
+        raise HTTPException(400,'Invalid scan identifier')
+    output=BASE_DIR/'jobs'/job_id/'output'
+    candidates=list((output/'prep').glob('*_foreground.png'))
+    candidates.extend(output.glob('temp_ai_*_rgba.png'))
+    if not candidates:
+        raise HTTPException(404,'Foreground preview is not ready')
+    from fastapi.responses import Response
+    from PIL import Image
+    from io import BytesIO
+    try:
+        payload=candidates[0].read_bytes()
+        Image.open(BytesIO(payload)).verify()
+    except (OSError,ValueError,SyntaxError):
+        raise HTTPException(404,'Foreground preview is still being written')
+    return Response(payload,media_type='image/png',headers={'Cache-Control':'no-store'})
+
+
+@router.get('/api/dataset/readiness')
+def dataset_readiness():
+    from pipeline.training_data import training_readiness
+    return training_readiness(BASE_DIR/'datasets')
+
+@router.get('/api/scan/point-cloud/{job_id}')
+def reconstructed_point_cloud(job_id: str):
+    import re
+    if not re.fullmatch(r'[a-f0-9]{8,32}',job_id):raise HTTPException(400,'Invalid scan identifier')
+    from pipeline.point_cloud import get_cloud
+    try:return get_cloud(BASE_DIR/'jobs'/job_id/'output')
+    except Exception:raise HTTPException(404,'3D points are still being reconstructed')

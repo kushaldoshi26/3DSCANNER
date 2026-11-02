@@ -82,7 +82,7 @@ def estimate_ai_depth(img_bgr: np.ndarray, model_type: str = "foundation") -> np
             print("   Using Custom Trained PyTorch 3D AI Model (best_3d_ai_model.pth)...")
             return depth
         except Exception as e:
-            print(f"   Custom model inference notice ({e}). Falling back to foundation model.")
+            raise RuntimeError(f'Custom depth checkpoint is not ready: {e}') from e
 
     load_ai_depth_model()
     h, w = img_bgr.shape[:2]
@@ -94,8 +94,8 @@ def estimate_ai_depth(img_bgr: np.ndarray, model_type: str = "foundation") -> np
             from PIL import Image
             pil_img = Image.fromarray(img_rgb)
             result = DEPTH_ANYTHING_PIPE(pil_img)
-            depth_img = result["depth"]
-            depth = np.array(depth_img, dtype=np.float32)
+            predicted=result.get('predicted_depth')
+            depth=predicted.detach().float().cpu().squeeze().numpy() if torch.is_tensor(predicted) else np.asarray(result['depth'],dtype=np.float32)
             depth = cv2.resize(depth, (w, h), interpolation=cv2.INTER_CUBIC)
             depth = (depth - depth.min()) / (depth.max() - depth.min() + 1e-8)
             return depth
@@ -122,14 +122,7 @@ def estimate_ai_depth(img_bgr: np.ndarray, model_type: str = "foundation") -> np
         except Exception as e:
             print(f"MiDaS inference error: {e}")
 
-    # 3. High-detail gradient fallback
-    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY) / 255.0
-    blur = cv2.GaussianBlur(gray, (5, 5), 0)
-    dx = cv2.Sobel(blur, cv2.CV_64F, 1, 0, ksize=3)
-    dy = cv2.Sobel(blur, cv2.CV_64F, 0, 1, ksize=3)
-    grad = np.sqrt(dx**2 + dy**2)
-    depth = 1.0 - (blur * 0.7 + grad * 0.3)
-    return (depth - depth.min()) / (depth.max() - depth.min() + 1e-8)
+    raise RuntimeError('No trained depth model is available. Choose TripoSR; brightness gradients are not 3D depth.')
 
 
 def compute_depth_normals(depth_map: np.ndarray, scale: float = 1.0) -> np.ndarray:
@@ -176,128 +169,29 @@ def remove_flying_pixels(mesh: o3d.geometry.TriangleMesh, max_edge_length: float
 
 
 def generate_ai_depth_3d_mesh(input_image_path: str, output_stl_path: str, model_type: str = "foundation") -> str:
-    """
-    Generates high-detail 3D model from single 2D image using Custom PyTorch / Depth-Anything-V2 / MiDaS
-    AI monocular depth estimation, per-pixel depth gradient surface normals, Poisson surface
-    reconstruction, and GLB texture projection.
-    """
-    in_p = Path(input_image_path)
-    out_stl = Path(output_stl_path)
-    out_glb = out_stl.with_suffix(".glb")
-    out_stl.parent.mkdir(parents=True, exist_ok=True)
+    from PIL import Image
+    import json
+    from pipeline.preprocess_input import preprocess_for_generation
+    from pipeline.point_cloud import depth_surface
+    from pipeline.mesh_quality import validate_mesh
+    out=Path(output_stl_path);out.parent.mkdir(parents=True,exist_ok=True)
+    prep=preprocess_for_generation(input_image_path,str(out.parent/'prep'))
+    rgba=np.asarray(Image.open(prep['foreground_rgba']).convert('RGBA'))
+    ratio=min(1.,512/max(rgba.shape[:2]))
+    if ratio<1: rgba=cv2.resize(rgba,None,fx=ratio,fy=ratio,interpolation=cv2.INTER_AREA)
+    alpha=rgba[:,:,3:4].astype(np.float32)/255
+    rgb=(rgba[:,:,:3]*alpha+127*(1-alpha)).astype(np.uint8)
+    depth=estimate_ai_depth(cv2.cvtColor(rgb,cv2.COLOR_RGB2BGR),model_type=model_type)
+    mesh=depth_surface(rgba,depth)
+    temporary=out.parent/'preview_cloud.tmp.npz'
+    np.savez_compressed(temporary,points=np.asarray(mesh.vertices),colors=np.asarray(mesh.visual.vertex_colors[:,:3]))
+    temporary.replace(out.parent/'preview_cloud.npz')
+    mesh.export(str(out));scene=trimesh.Scene(mesh);scene.metadata['source_view']=[0,0,1];scene.metadata['geometry_kind']='estimated_depth_surface';scene.export(str(out.with_suffix('.glb')))
+    qc=validate_mesh(mesh,coordinate_space='normalized')
+    qc['warnings'].append('Single-view depth is an estimated open surface, not a closed 360-degree reconstruction or calibrated measurement.')
+    (out.parent/'quality_report.json').write_text(json.dumps({'quality':qc,'engine_used':'ai_depth','warnings':qc['warnings'],'geometry_kind':'estimated_depth_surface'},indent=2))
+    return str(out)
 
-    print(f"1. AI Depth 3D ({model_type}): Isolating background for {in_p.name}...")
-    temp_rgba_path = out_stl.parent / f"temp_ai_{in_p.stem}_rgba.png"
-    process_single_image(str(in_p), str(temp_rgba_path))
-
-    rgba = cv2.imread(str(temp_rgba_path), cv2.IMREAD_UNCHANGED)
-    if rgba is None or rgba.shape[2] < 4:
-        raise ValueError("Failed to load 4-channel RGBA image.")
-
-    # Clamp resolution to optimal max 512 dimension for fast inference & reconstruction
-    max_dim = 512
-    h_orig, w_orig = rgba.shape[:2]
-    if max(h_orig, w_orig) > max_dim:
-        scale_img = max_dim / max(h_orig, w_orig)
-        new_w, new_h = int(w_orig * scale_img), int(h_orig * scale_img)
-        rgba = cv2.resize(rgba, (new_w, new_h), interpolation=cv2.INTER_AREA)
-
-    b, g, r, alpha = cv2.split(rgba)
-    img_bgr = cv2.merge([b, g, r])
-    mask = alpha > 15
-
-    print(f"2. Predicting per-pixel AI depth map & surface normals ({model_type})...")
-    ai_depth = estimate_ai_depth(img_bgr, model_type=model_type)
-    
-    # Smooth boundary edge feathering to preserve exact inner subject depth
-    dist = cv2.distanceTransform(mask.astype(np.uint8), cv2.DIST_L2, 5)
-    edge_feather = np.clip(dist / 6.0, 0.0, 1.0)
-    
-    # 100% fine AI depth inside the subject, tapered smoothly to 0 at boundary
-    final_depth = ai_depth * edge_feather
-    final_depth[~mask] = 0.0
-
-    normal_map = compute_depth_normals(final_depth, scale=3.0)
-
-    print("3. Generating high-density normal-guided 3D volumetric point cloud...")
-    h, w = alpha.shape
-    cx, cy = w / 2.0, h / 2.0
-    scale = 2.0 / max(h, w)
-    rgb = cv2.merge([r, g, b]) / 255.0
-
-    y_idx, x_idx = np.where(mask)
-    if len(y_idx) == 0:
-        raise ValueError("No valid foreground subject found in masked image.")
-
-    # Bound maximum point cloud size to ~100k points for clean, fast reconstruction
-    max_pts = 100000
-    if len(y_idx) > max_pts:
-        step = int(np.ceil(len(y_idx) / max_pts))
-        y_idx = y_idx[::step]
-        x_idx = x_idx[::step]
-
-    z_front = (final_depth[y_idx, x_idx] * 0.9).astype(np.float64)
-    x_3d = ((x_idx - cx) * scale).astype(np.float64)
-    y_3d = (-(y_idx - cy) * scale).astype(np.float64)
-    front_pts = np.stack([x_3d, y_3d, z_front], axis=1)
-    front_normals = normal_map[y_idx, x_idx].astype(np.float64)
-    front_colors = rgb[y_idx, x_idx].astype(np.float64)
-
-    taper = edge_feather[y_idx, x_idx].astype(np.float64)
-    z_back = (-z_front * 0.4 * taper).astype(np.float64)
-    back_pts = np.stack([x_3d, y_3d, z_back], axis=1)
-    back_normals = np.stack([-front_normals[:, 0] * 0.5, -front_normals[:, 1] * 0.5, -np.ones_like(z_front)], axis=1)
-    norm_lens = np.linalg.norm(back_normals, axis=1, keepdims=True) + 1e-8
-    back_normals = back_normals / norm_lens
-    back_colors = front_colors * 0.75
-
-    points = np.vstack([front_pts, back_pts])
-    normals = np.vstack([front_normals, back_normals])
-    colors = np.vstack([front_colors, back_colors])
-
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(points)
-    pcd.normals = o3d.utility.Vector3dVector(normals)
-    pcd.colors = o3d.utility.Vector3dVector(colors)
-
-    print(f"   Point cloud: {len(points)} points")
-
-    print("4. Reconstructing high-detail Poisson 3D Surface (depth=8)...")
-    mesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(
-        pcd, depth=8, scale=1.1, linear_fit=True
-    )
-
-    # Trim low-density boundary artifacts — keep 98% of detail
-    densities_arr = np.asarray(densities)
-    if len(densities_arr) > 0:
-        density_threshold = np.quantile(densities_arr, 0.02)
-        vertices_to_remove = densities_arr < density_threshold
-        mesh.remove_vertices_by_mask(vertices_to_remove)
-
-    # 4b. Remove flying pixels (stretched edge discontinuity triangles)
-    mesh = remove_flying_pixels(mesh, max_edge_length=0.10)
-
-    mesh.compute_vertex_normals()
-    print(f"   Poisson mesh: {len(mesh.vertices)} vertices, {len(np.asarray(mesh.triangles))} faces")
-
-    temp_stl = out_stl.parent / f"temp_ai_{in_p.stem}_raw.stl"
-    o3d.io.write_triangle_mesh(str(temp_stl), mesh)
-
-    print("5. Gentle mesh refinement (preserving detail)...")
-    refine_mesh(str(temp_stl), str(out_stl), smoothing_iterations=1, decimation_ratio=0.95)
-
-    print("6. Projecting RGB texture onto 3D mesh vertices & exporting GLB...")
-    project_texture_to_mesh(str(out_stl), str(input_image_path), str(out_glb))
-
-    if temp_rgba_path.exists():
-        try: temp_rgba_path.unlink()
-        except Exception: pass
-    if temp_stl.exists():
-        try: temp_stl.unlink()
-        except Exception: pass
-
-    print(f"High-Detail Textured 3D Model created: STL={out_stl}, GLB={out_glb}")
-    return str(out_stl)
 
 if __name__ == "__main__":
     import sys

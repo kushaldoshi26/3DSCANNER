@@ -1,0 +1,25 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert/strict');
+const elements={};
+for(const id of ['generationSummary','generationSummaryTitle','generationSummaryDescription','generationSummaryNotes']) elements[id]={hidden:true,dataset:{},textContent:'',children:[],replaceChildren(){this.children=[];},appendChild(item){this.children.push(item);}};
+const requests=[];
+const context=vm.createContext({document:{getElementById:id=>elements[id],createElement:()=>({textContent:''})},fetch:url=>new Promise(resolve=>requests.push({url,resolve})),console});
+vm.runInContext(fs.readFileSync('static/generation-summary.js','utf8'),context);
+const report={engine_requested:'hunyuan3d',engine_used:'tripo',engine_label:'TripoSR',degraded:true,experimental:true,appearance_only:true,mesh_passed:true,relative_scale:true,fine_geometry_verified:false,warnings:['Two parts','<img src=x onerror=alert(1)>']};
+(async()=>{
+    const first=vm.runInContext('loadGenerationSummary("old")',context);
+    const second=vm.runInContext('loadGenerationSummary("new")',context);
+    requests[1].resolve({ok:true,json:async()=>report});await second;
+    assert.match(elements.generationSummaryDescription.textContent,/TripoSR/);
+    assert.match(elements.generationSummaryDescription.textContent,/fallback/);
+    assert.equal(elements.generationSummaryTitle.textContent,'Experimental result');
+    assert.equal(elements.generationSummary.dataset.state,'review');
+    assert.ok(elements.generationSummaryNotes.children.some(item=>item.textContent.includes('does not reconstruct')));
+    assert.ok(elements.generationSummaryNotes.children.some(item=>item.textContent.startsWith('<img')));
+    requests[0].resolve({ok:false});await first;
+    assert.equal(elements.generationSummaryTitle.textContent,'Experimental result','stale requests must not replace the new model summary');
+    const failed=vm.runInContext('loadGenerationSummary("missing")',context);
+    requests[2].resolve({ok:false});await failed;
+    assert.equal(elements.generationSummaryTitle.textContent,'Result details unavailable');
+    assert.equal(elements.generationSummaryNotes.children.length,0,'old warnings must be cleared');
+    console.log('Visible fallback, experimental appearance caveats, plain-text warnings and stale-response handling passed.');
+})().catch(error=>{console.error(error);process.exitCode=1;});

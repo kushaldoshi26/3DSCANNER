@@ -84,53 +84,57 @@ def detect_face_roi(image_path: str) -> Optional[Tuple[float, float, float, floa
 # ---------------------------------------------------------------------------
 # Cleanup primitive steps
 # ---------------------------------------------------------------------------
-def _remove_invalid_geometry(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
+def _remove_invalid_geometry(mesh: trimesh.Trimesh, remove_small_components=False) -> trimesh.Trimesh:
+    vertices = np.asarray(mesh.vertices)
+    finite = np.isfinite(vertices).all(axis=1)
+    mesh.update_faces(finite[mesh.faces].all(axis=1))
     mesh.remove_unreferenced_vertices()
+    try:
+        mesh.update_faces(mesh.unique_faces())
+    except AttributeError:
+        mesh.remove_duplicate_faces()
     try:
         mask = mesh.nondegenerate_faces()
         if mask is not None and len(mask) > 0:
             mesh.update_faces(mask)
     except Exception:
         pass
-    # Remove tiny isolated components (keep the largest body).
-    try:
-        components = mesh.split(only_watertight=False)
-        if len(components) > 1:
-            components = [c for c in components if len(c.faces) > 0]
-            components.sort(key=lambda c: len(c.faces), reverse=True)
-            largest = components[0]
-            for c in components[1:]:
-                if len(c.faces) < 200:  # discard small floating bits
-                    continue
-                largest = trimesh.util.concatenate([largest, c])
-            mesh = largest
-    except Exception:
-        pass
+    # Detached accessories are legitimate geometry; removal requires explicit opt-in.
+    if remove_small_components:
+        # Remove tiny isolated components (keep the largest body).
+        try:
+            components = mesh.split(only_watertight=False)
+            if len(components) > 1:
+                components = [c for c in components if len(c.faces) > 0]
+                components.sort(key=lambda c: len(c.faces), reverse=True)
+                largest = components[0]
+                for c in components[1:]:
+                    if len(c.faces) < max(4, int(len(components[0].faces) * 0.002)):  # relative artifact threshold
+                        continue
+                    largest = trimesh.util.concatenate([largest, c])
+                mesh = largest
+        except Exception:
+            pass
     return mesh
 
 
 def _fix_topology(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
     try:
         trimesh.repair.fix_winding(mesh)
-        trimesh.repair.fix_normals(mesh)
+        trimesh.repair.fix_normals(mesh, multibody=True)
     except Exception:
         pass
-    # Repair non-manifold edges only when it does not destroy detail.
-    try:
-        if mesh.edges_non_manifold.sum() > 0:
-            mesh = mesh.split(only_watertight=False)[0]
-    except Exception:
-        pass
+    # Retain separate legitimate parts; QC reports remaining non-manifold edges.
     return mesh
 
 
-def _optional_remesh(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
-    if not REMESH_ENABLED:
+def _optional_remesh(mesh: trimesh.Trimesh, enabled: bool = False) -> trimesh.Trimesh:
+    if not enabled:
         return mesh
     try:
         sizes = np.linalg.norm(mesh.vertices[mesh.edges[:, 0]] - mesh.vertices[mesh.edges[:, 1]], axis=1)
         if sizes.std() / (sizes.mean() + 1e-8) > 1.5:  # highly inconsistent
-            mesh = mesh.simplify_quadric_decimation(percent=0.9)
+            mesh = mesh.simplify_quadric_decimation(face_count=max(100, int(len(mesh.faces) * 0.9)))
     except Exception:
         pass
     return mesh
@@ -184,24 +188,18 @@ def _taubin_smooth(mesh: trimesh.Trimesh, iterations: int) -> trimesh.Trimesh:
     """
     if iterations <= 0 or len(mesh.vertices) == 0:
         return mesh
+    from scipy.sparse import coo_matrix
     verts = mesh.vertices.astype(np.float64).copy()
-    adjacency = _build_adjacency(mesh)
-    # lambda in (0,1) shrink; mu > lambda negative (expand). mu ~ -lambda/..
-    lam = 0.5
-    mu = -0.53
-    for _ in range(max(1, iterations)):
-        # Positive (shrink) pass.
-        lap = np.zeros_like(verts)
-        for i, nbrs in enumerate(adjacency):
-            if nbrs:
-                lap[i] = verts[nbrs].mean(axis=0) - verts[i]
-        v_pos = verts + lam * lap
-        # Negative (expand) pass on the shrunk positions.
-        lap2 = np.zeros_like(v_pos)
-        for i, nbrs in enumerate(adjacency):
-            if nbrs:
-                lap2[i] = v_pos[nbrs].mean(axis=0) - v_pos[i]
-        verts = v_pos + mu * lap2
+    edges = mesh.edges_unique
+    row = np.concatenate([edges[:,0], edges[:,1]])
+    col = np.concatenate([edges[:,1], edges[:,0]])
+    degree = np.bincount(row, minlength=len(verts))
+    weights = 1.0 / np.maximum(degree[row], 1)
+    adjacency = coo_matrix((weights,(row,col)),shape=(len(verts),len(verts))).tocsr()
+    active = (degree > 0)[:,None]
+    for _ in range(iterations):
+        v_pos = verts + 0.5 * (adjacency @ verts - verts) * active
+        verts = v_pos - 0.53 * (adjacency @ v_pos - v_pos) * active
     mesh.vertices = verts.astype(np.float64)
     try:
         mesh.fix_normals()
@@ -215,6 +213,7 @@ def _face_aware_smooth(
     image_path: Optional[str],
     face_strength: float,
     body_strength: float,
+    iterations: int = TAUBIN_ITERATIONS,
 ) -> trimesh.Trimesh:
     """
     Applies stronger smoothing to body/clothing and weaker smoothing to the
@@ -223,7 +222,9 @@ def _face_aware_smooth(
     """
     roi = detect_face_roi(image_path) if image_path else None
 
-    verts = mesh.vertices
+    if iterations <= 0:
+        return mesh
+    verts = mesh.vertices.copy()
     bbox_min = verts.min(axis=0)
     bbox_max = verts.max(axis=0)
     center = (bbox_min + bbox_max) / 2.0
@@ -244,7 +245,7 @@ def _face_aware_smooth(
         # Conservative default: upper 35% of height, central 60% width.
         u = (verts[:, 0] - bbox_min[0]) / (size[0] + 1e-8)
         v = 1.0 - (verts[:, 1] - bbox_min[1]) / (size[1] + 1e-8)
-        in_roi = (u >= 0.2) & (u <= 0.8) & (v >= 0.65)
+        in_roi = (u >= 0.2) & (u <= 0.8) & (v <= 0.35)
         face_weight[in_roi] = 1.0
 
     # Per-vertex smoothing factor blends face/body strengths.
@@ -252,7 +253,7 @@ def _face_aware_smooth(
     factor = np.clip(factor, 0.0, 1.0)
 
     # One Taubin pass, then blend per-vertex toward the smoothed result.
-    smoothed = _taubin_smooth(mesh, iterations=max(1, TAUBIN_ITERATIONS))
+    smoothed = _taubin_smooth(mesh.copy(), iterations=iterations)
     blended = verts + (smoothed.vertices - verts) * factor[:, None]
     mesh.vertices = blended
     return mesh
@@ -278,9 +279,6 @@ def cleanup_generated_mesh(
     Structured cleanup of a raw AI-generated mesh. Returns the output path.
     Saves GLB + STL alongside the principal export format.
     """
-    global TAUBIN_ITERATIONS, REMESH_ENABLED
-    TAUBIN_ITERATIONS = taubin_iterations
-    REMESH_ENABLED = remesh_enabled
 
     out_p = Path(output_mesh_path)
     out_p.parent.mkdir(parents=True, exist_ok=True)
@@ -289,23 +287,28 @@ def cleanup_generated_mesh(
     if isinstance(mesh, trimesh.Scene):
         mesh = trimesh.util.concatenate(mesh.dump())
 
+    if mesh.is_empty or len(mesh.faces) == 0:
+        raise ValueError("The engine produced an empty mesh.")
     raw_verts = len(mesh.vertices)
     raw_faces = len(mesh.faces)
     print(f"[cleanup] Raw mesh: {raw_verts} verts, {raw_faces} faces")
 
     mesh = _remove_invalid_geometry(mesh)
+    if mesh.is_empty:
+        raise ValueError("No valid faces remain after mesh cleanup.")
     print(f"[cleanup] After invalid-geometry removal: {len(mesh.faces)} faces")
 
     mesh = _fix_topology(mesh)
 
     if object_type == "hard_surface":
         print("[cleanup] Hard-surface mode: applying planar decimation and skipping organic smoothing.")
-        mesh = _planar_decimation(mesh)
+        # Decimation is not a flattening algorithm; retain mechanical edges.
+        pass
     else:
-        mesh = _optional_remesh(mesh)
+        mesh = _optional_remesh(mesh, enabled=remesh_enabled)
         if smoothing_enabled:
             mesh = _face_aware_smooth(
-                mesh, image_path, face_strength=face_strength, body_strength=body_strength
+                mesh, image_path, face_strength=face_strength, body_strength=body_strength, iterations=taubin_iterations
             )
             print(f"[cleanup] Face-aware smoothing applied (face={face_strength}, body={body_strength}).")
 

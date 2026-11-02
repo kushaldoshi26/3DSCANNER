@@ -53,7 +53,7 @@ def refine_mesh(
     # 1. Weight Loading
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     ai_model = None
-    if reference_images and len(reference_images) > 0:
+    if enable_ai_displacement and reference_images and len(reference_images) > 0:
         print("Loading custom trained HighPrecision3DReconstructionNet...")
         model_path = "d:/3dSCANNER/data/models/best_3d_ai_model.pth"
         if Path(model_path).exists():
@@ -195,6 +195,8 @@ def refine_mesh(
                 f"{int(confident.sum())}/{num_vertices} vertices confident)."
             )
 
+    mesh.vertices = vertices_tensor.detach().cpu().numpy().astype(np.float64)
+
     # Laplacian smoothing (Volume preserving)
     if num_vertices > 100000:
         print(f"Skipping Laplacian smoothing (mesh has {num_vertices} vertices, too large).")
@@ -223,7 +225,7 @@ def refine_mesh(
         if target_faces < len(mesh.faces):
             try:
                 ratio = float(target_faces) / float(len(mesh.faces))
-                mesh = mesh.simplify_quadric_decimation(ratio)
+                mesh = mesh.simplify_quadric_decimation(face_count=target_faces)
                 print(f"Decimated: {initial_faces} -> {len(mesh.faces)} faces.")
             except Exception as e:
                 print(f"Quadric decimation skipped: {e}")
@@ -234,57 +236,9 @@ def refine_mesh(
     print(f"Saving refined mesh to {out_p}...")
     mesh.export(str(out_p))
 
-    # Texture Baking (UV Unwrapping with xatlas)
-    print("Baking vertex colors to texture map...")
-    try:
-        import xatlas
-        import cv2
-        from PIL import Image
-        
-        if hasattr(mesh.visual, 'vertex_colors') and len(mesh.visual.vertex_colors) > 0:
-            vmapping, indices, uvs = xatlas.parametrize(mesh.vertices, mesh.faces)
-            
-            old_colors = mesh.visual.vertex_colors[:, :3]
-            new_colors = old_colors[vmapping]
-            
-            texture_size = 1024
-            texture = np.zeros((texture_size, texture_size, 3), dtype=np.uint8)
-            
-            for uv, color in zip(uvs, new_colors):
-                x = np.clip(int(uv[0] * (texture_size - 1)), 0, texture_size - 1)
-                y = np.clip(int((1.0 - uv[1]) * (texture_size - 1)), 0, texture_size - 1)
-                texture[y, x] = color
-                
-            kernel = np.ones((7,7), np.uint8)
-            texture = cv2.dilate(texture, kernel, iterations=3)
-            
-            tex_img = Image.fromarray(texture)
-            material = trimesh.visual.material.SimpleMaterial(image=tex_img)
-            
-            new_mesh = trimesh.Trimesh(vertices=mesh.vertices[vmapping], faces=indices)
-            new_mesh.visual = trimesh.visual.TextureVisuals(uv=uvs, image=tex_img, material=material)
-            mesh = new_mesh
-            print("UV Unwrapping and texture baking successful.")
-    except Exception as e:
-        print(f"UV generation error: {e}. Falling back to vertex colors.")
-
-    # Also save as GLB
-    glb_out = out_p.with_suffix(".glb")
-    mesh.export(str(glb_out))
-    print(f"Saved GLB asset to {glb_out}")
-
-    # Phase 7.1: Run mesh cleanup as final pipeline step
-    try:
-        from pipeline.cleanup_mesh import cleanup_generated_mesh
-        print("Running final cleanup to remove floating components...")
-        cleaned_path = str(out_p).replace('.stl', '_clean.stl')
-        cleanup_generated_mesh(str(out_p), cleaned_path, object_type='organic')
-        
-        # Override output if cleanup successful
-        if Path(cleaned_path).exists():
-            out_p = Path(cleaned_path)
-    except Exception as e:
-        print(f"Cleanup failed (non-fatal): {e}")
+    # Preserve generated appearance directly; sparse UV vertex splats create
+    # dark patches and a second cleanup pass silently changes exported geometry.
+    mesh.export(str(out_p.with_suffix('.glb')), include_normals=True)
 
     return str(out_p)
 

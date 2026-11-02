@@ -29,6 +29,7 @@ def validate_mesh(
     max_bbox_mm: float = 5000.0,
     require_watertight: bool = False,
     check_self_intersection: bool = True,
+    coordinate_space: str = "meters",
 ) -> Dict[str, Any]:
     """
     Runs a full QC battery and returns a structured report.
@@ -63,11 +64,19 @@ def validate_mesh(
     if len(faces) < min_faces:
         errors.append(f"Too few faces ({len(faces)} < {min_faces}).")
 
+    if not np.isfinite(vertices).all():
+        errors.append("Mesh contains non-finite vertex coordinates.")
+    if len(vertices) == 0 or len(faces) == 0 or not np.isfinite(vertices).all():
+        return {"status": "FAILED", "passed": False, "metrics": metrics,
+                "warnings": warnings, "errors": errors}
+
     # --- Topology ---
     metrics["watertight"] = bool(mesh.is_watertight)
     metrics["winding_consistent"] = bool(mesh.is_winding_consistent)
     try:
-        non_manifold = len(mesh.edges_unique[mesh.edges_non_manifold])
+        incidence = np.bincount(mesh.edges_unique_inverse, minlength=len(mesh.edges_unique))
+        non_manifold = int(np.count_nonzero(incidence > 2))
+        metrics["boundary_edges"] = int(np.count_nonzero(incidence == 1))
     except Exception:
         non_manifold = -1
     metrics["non_manifold_edges"] = int(non_manifold)
@@ -87,14 +96,17 @@ def validate_mesh(
             f"{components} disconnected components (expected <= {max_disconnected_components})."
         )
 
-    # --- Bounding box (assumes mesh already in mm or unit; report both) ---
+    # Generated assets have relative scale until a physical reference is supplied.
     extents = mesh.extents
-    metrics["bounding_box_mm"] = [round(float(x) * 1000.0, 3) for x in extents]
-    bbox_max = float(np.max(extents) * 1000.0)
-    if bbox_max < min_bbox_mm:
-        warnings.append(f"Bounding box very small ({bbox_max:.3f} mm).")
-    if bbox_max > max_bbox_mm:
-        warnings.append(f"Bounding box implausibly large ({bbox_max:.1f} mm).")
+    metrics["coordinate_space"] = coordinate_space
+    if coordinate_space == "normalized":
+        metrics["bounding_box_units"] = [round(float(x), 6) for x in extents]
+        metrics["scale_calibrated"] = False
+    else:
+        metrics["bounding_box_mm"] = [round(float(x) * 1000.0, 3) for x in extents]
+        bbox_max = float(np.max(extents) * 1000.0)
+        if bbox_max < min_bbox_mm: warnings.append(f"Bounding box very small ({bbox_max:.3f} mm).")
+        if bbox_max > max_bbox_mm: warnings.append(f"Bounding box implausibly large ({bbox_max:.1f} mm).")
 
     # --- Self-intersection ---
     self_intersections = -1
@@ -111,9 +123,12 @@ def validate_mesh(
 
     # --- Volume ---
     try:
-        metrics["volume_mm3"] = round(float(abs(mesh.volume)) * 1e9, 2)
+        metrics["volume_units3" if coordinate_space == "normalized" else "volume_mm3"] = round(float(abs(mesh.volume)) * (1.0 if coordinate_space == "normalized" else 1e9), 6)
     except Exception:
         metrics["volume_mm3"] = None
+
+    if not metrics["winding_consistent"]:
+        errors.append("Mesh winding is inconsistent.")
 
     # --- Watertight gate ---
     if require_watertight and not metrics["watertight"]:

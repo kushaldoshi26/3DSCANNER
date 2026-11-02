@@ -15,7 +15,13 @@ class Hunyuan3DEngine(EngineBase):
     fallbacks = ["trellis", "tripo"]
 
     def is_available(self) -> bool:
-        return probe_module("hy3dgen.shapegen", "Hunyuan3DDiTFlowMatchingPipeline")
+        from pipeline.hunyuan3d_inference import _native_imports
+        _native_imports()
+        from pathlib import Path
+        import os,importlib.util
+        models=Path(os.environ['HY3DGEN_MODELS'])/'tencent/Hunyuan3D-2'
+        required=['hunyuan3d-dit-v2-0/model.fp16.safetensors','hunyuan3d-delight-v2-0/unet/diffusion_pytorch_model.safetensors','hunyuan3d-paint-v2-0-turbo/unet/diffusion_pytorch_model.bin']
+        return all((models/p).is_file() for p in required) and importlib.util.find_spec('custom_rasterizer_kernel') is not None and probe_module('hy3dgen.shapegen','Hunyuan3DDiTFlowMatchingPipeline')
 
     def generate(
         self,
@@ -26,14 +32,13 @@ class Hunyuan3DEngine(EngineBase):
         quality: str = "high",
         progress_cb=None,
     ) -> dict:
-        self._progress(progress_cb, "AI reconstruction", 40, "Loading Hunyuan3D 2.0 pipelines...")
-        from pipeline.hunyuan3d_inference import generate_hunyuan3d_mesh
+        self._progress(progress_cb, "AI reconstruction", 1, "Loading Hunyuan3D 2.0 pipelines...")
+        from pipeline.hunyuan_runtime import run_hunyuan_worker
 
-        self._progress(progress_cb, "AI reconstruction", 60, "Hunyuan3D shape + paint synthesis...")
         try:
-            generate_hunyuan3d_mesh(image_path, output_stl, output_glb, paint_texture=texture)
+            metadata=run_hunyuan_worker(image_path,output_stl,output_glb,texture=texture,quality=quality,progress_cb=progress_cb)
         except Exception as e:
             raise RuntimeError(f"Hunyuan3D generation failed: {e}")
 
         self._progress(progress_cb, "AI reconstruction", 90, "Hunyuan3D mesh exported.")
-        return {"engine_used": self.key, "degraded": False}
+        return {"engine_used": self.key, "degraded": False, "generation":metadata}

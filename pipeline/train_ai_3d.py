@@ -39,6 +39,11 @@ from torch.utils.data import Dataset, DataLoader
 
 from pipeline.losses import ChamferLoss, LaplacianEdgeLoss, NormalConsistencyLoss, MaskedMSELoss, SSIMLoss
 
+def mask_bce(predicted, target):
+    # Sigmoid mask probabilities must use full precision outside autocast.
+    with torch.amp.autocast('cuda', enabled=False):
+        return F.binary_cross_entropy(predicted.float().clamp(1e-6, 1-1e-6), target.float())
+
 DATASETS_DIR = Path("d:/3dSCANNER/data/datasets")
 PROCESSED_DIR = DATASETS_DIR / "processed"
 MODELS_DIR = Path("d:/3dSCANNER/data/models")
@@ -323,6 +328,11 @@ class Kaggle3DFoundationDataset(Dataset):
                 print(f"[GCS Notice] Could not load from cloud: {e}. Falling back to local files.")
 
         self.file_paths = []
+        exclusion_file=DATASETS_DIR/'geometry_exclusions.json'
+        if exclusion_file.exists():
+            import json
+            excluded=set(json.loads(exclusion_file.read_text(encoding='utf-8')).get('npz_files',[]))
+            npz_files=[f for f in npz_files if f.name not in excluded]
         if npz_files:
             print(f"Discovered {len(npz_files)} pre-processed .NPZ dataset targets from {PROCESSED_DIR} at {self.img_size}x{self.img_size} resolution.")
             self.file_paths.extend(npz_files)
@@ -348,12 +358,7 @@ class Kaggle3DFoundationDataset(Dataset):
 
     def __getitem__(self, idx):
         if not self.file_paths:
-            return {
-                "image": torch.rand(3, self.img_size, self.img_size),
-                "depth": torch.rand(1, self.img_size, self.img_size),
-                "normals": torch.zeros(3, self.img_size, self.img_size),
-                "mask": torch.ones(1, self.img_size, self.img_size)
-            }
+            raise ValueError('No geometry dataset available')
             
         file_idx = (idx // 16) % len(self.file_paths)
         file_path = self.file_paths[file_idx]
@@ -386,12 +391,7 @@ class Kaggle3DFoundationDataset(Dataset):
 
         if points is None or len(points) == 0:
             # Return dummy on failure
-            return {
-                "image": torch.zeros(3, self.img_size, self.img_size),
-                "depth": torch.zeros(1, self.img_size, self.img_size),
-                "normals": torch.zeros(3, self.img_size, self.img_size),
-                "mask": torch.zeros(1, self.img_size, self.img_size)
-            }
+            raise ValueError(f'Invalid geometry dataset: {file_path}')
 
         valid_mask = ~np.isnan(points).any(axis=1)
         points = points[valid_mask]
@@ -399,12 +399,7 @@ class Kaggle3DFoundationDataset(Dataset):
             normals = normals[valid_mask]
 
         if len(points) == 0:
-            return {
-                "image": torch.zeros(3, self.img_size, self.img_size),
-                "depth": torch.zeros(1, self.img_size, self.img_size),
-                "normals": torch.zeros(3, self.img_size, self.img_size),
-                "mask": torch.zeros(1, self.img_size, self.img_size)
-            }
+            raise ValueError(f'Invalid geometry dataset: {file_path}')
 
         norm_pts = points - points.mean(axis=0)
         max_ext = np.max(np.abs(norm_pts))
@@ -548,8 +543,8 @@ def train_custom_3d_ai_model(
     global TRAINING_STATE
 
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
-    out_model_path = MODELS_DIR / "custom_3d_ai_model.pth"
-    best_model_path = MODELS_DIR / "best_3d_ai_model.pth"
+    out_model_path = MODELS_DIR / "photo_depth_v2_latest.pth"
+    best_model_path = MODELS_DIR / "photo_depth_v2_best.pth"
 
     # Reset state
     TRAINING_STATE["status"] = "training"
@@ -568,23 +563,26 @@ def train_custom_3d_ai_model(
     log_msg("  PyTorch High-Precision 3D Reconstruction Neural Network Training")
     log_msg("=" * 68)
 
-    # 1. Ingest Datasets at target resolution
-    full_dataset = Kaggle3DFoundationDataset(img_size=img_size, augment=True)
-    total_samples = len(full_dataset)
-    log_msg(f"Generated {total_samples} multi-view 3D training samples at {img_size}x{img_size} resolution.")
-
-    # Train / Validation Split (85% / 15%)
-    val_size = max(1, int(total_samples * 0.15))
-    train_size = total_samples - val_size
-    train_dataset, val_dataset = torch.utils.data.random_split(
-        full_dataset, [train_size, val_size],
-        generator=torch.Generator().manual_seed(42)
-    )
+    from pipeline.training_data import PhotoDepthDataset,CONTRACT
+    manifest=DATASETS_DIR/'training_manifest.json'
+    try:
+        train_dataset=PhotoDepthDataset(manifest,'train',img_size=img_size,augment=True)
+        val_dataset=PhotoDepthDataset(manifest,'val',img_size=img_size,augment=False)
+    except ValueError as error:
+        TRAINING_STATE.update(status='failed',error=str(error))
+        raise
+    total_samples=len(train_dataset)+len(val_dataset)
+    train_size,val_size=len(train_dataset),len(val_dataset)
+    data_metadata={'contract':CONTRACT,'object_disjoint':True,'train_objects':sorted({s['object_id'] for s in train_dataset.records}),
+                   'validation_objects':sorted({s['object_id'] for s in val_dataset.records})}
+    log_msg(f'Using {train_size} aligned training pairs and {val_size} held-out pairs; no shared objects.')
 
     import multiprocessing
-    num_workers = min(4, multiprocessing.cpu_count())
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=False, num_workers=num_workers, pin_memory=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True)
+    torch.multiprocessing.set_sharing_strategy('file_system')
+    num_workers = 0  # Use single-process DataLoader on Windows to avoid shared memory issues
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=False, num_workers=num_workers, pin_memory=False)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=False)
+    # Duplicate DataLoader definitions removed (using the Windows‑safe configuration above)
     log_msg(f"Dataset split: {train_size} training samples / {val_size} validation samples (Workers: {num_workers})")
 
     # Select Device
@@ -620,7 +618,8 @@ def train_custom_3d_ai_model(
     start_epoch = 1
     if resume and best_model_path.exists():
         try:
-            ckpt = torch.load(str(best_model_path), map_location=device)
+            ckpt = torch.load(str(best_model_path), map_location=device, weights_only=True)
+            assert ckpt.get('data_contract',{}).get('contract') == CONTRACT, 'Cannot resume an incompatible legacy checkpoint'
             state_dict = ckpt.get('model_state_dict', ckpt)
             model.load_state_dict(state_dict)
             prev_epoch = ckpt.get('epoch', 0)
@@ -683,6 +682,7 @@ def train_custom_3d_ai_model(
                 imgs = batch["image"].to(device, non_blocking=True)
                 target_depth = batch["depth"].to(device, non_blocking=True)
                 target_normals = batch["normals"].to(device, non_blocking=True)
+                target_mask = batch["mask"].to(device, non_blocking=True)
 
                 optimizer.zero_grad()
 
@@ -699,7 +699,7 @@ def train_custom_3d_ai_model(
                             + W_SSIM * l_ssim
                             + chamfer_w * l_chamfer 
                             + W_LAPLACIAN * l_lap 
-                            + W_NORMAL * l_norm)
+                            + W_NORMAL * l_norm + 0.25 * mask_bce(pred_mask, target_mask))
 
                 scaler.scale(loss).backward()
                 scaler.unscale_(optimizer)
@@ -728,6 +728,7 @@ def train_custom_3d_ai_model(
                     imgs = batch["image"].to(device)
                     target_depth = batch["depth"].to(device)
                     target_normals = batch["normals"].to(device)
+                    target_mask = batch["mask"].to(device)
 
                     with torch.amp.autocast('cuda', enabled=use_amp):
                         pred_depth, pred_normals, pred_mask = model(imgs)
@@ -742,7 +743,7 @@ def train_custom_3d_ai_model(
                                 + W_SSIM * l_ssim
                                 + chamfer_w * l_chamfer 
                                 + W_LAPLACIAN * l_lap 
-                                + W_NORMAL * l_norm)
+                                + W_NORMAL * l_norm + 0.25 * mask_bce(pred_mask, target_mask))
 
                     val_loss_total += loss.item()
                     num_val_batches += 1
@@ -768,6 +769,7 @@ def train_custom_3d_ai_model(
                 epochs_without_improvement = 0
                 torch.save({
                     'model_state_dict': model.state_dict(),
+                    'data_contract': data_metadata,
                     'optimizer_state_dict': optimizer.state_dict(),
                     'epoch': epoch,
                     'val_loss': avg_val,
@@ -823,6 +825,7 @@ def train_custom_3d_ai_model(
         # Save Final Checkpoint
         torch.save({
             'model_state_dict': model.state_dict(),
+                    'data_contract': data_metadata,
             'epochs': epochs,
             'final_train_loss': avg_train,
             'final_val_loss': avg_val,
@@ -855,10 +858,11 @@ def predict_custom_neural_depth_and_normals(
     Returns:
       (depth_map [H, W], normal_map [H, W, 3], mask [H, W])
     """
-    if model_path is None:
-        model_path = str(MODELS_DIR / "best_3d_ai_model.pth")
-        if not Path(model_path).exists():
-            model_path = str(MODELS_DIR / "custom_3d_ai_model.pth")
+    from pipeline.training_data import checkpoint_status
+    status=checkpoint_status(model_path)
+    if not status['ready']:
+        raise RuntimeError(status['reason'])
+    model_path=status['path']
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = HighPrecision3DReconstructionNet().to(device)
@@ -866,7 +870,7 @@ def predict_custom_neural_depth_and_normals(
     # Read resolution from checkpoint (supports both old 128 and new 256 models)
     img_size = 128  # default fallback for older checkpoints
     if Path(model_path).exists():
-        ckpt = torch.load(model_path, map_location=device)
+        ckpt = torch.load(model_path, map_location=device, weights_only=True)
         state_dict = ckpt["model_state_dict"] if "model_state_dict" in ckpt else ckpt
         model.load_state_dict(state_dict)
         img_size = ckpt.get('img_size', 128)

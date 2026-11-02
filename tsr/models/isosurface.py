@@ -13,7 +13,9 @@ except ImportError:
         else:
             vol_np = volume
         verts, faces = mcubes.marching_cubes(vol_np, float(isovalue))
-        return torch.from_numpy(verts.astype(np.float32)), torch.from_numpy(faces.astype(np.int64))
+        # torchmcubes reports z,y,x; PyMCubes reports NumPy x,y,z.
+        # Normalize here so the helper's shared axis conversion remains correct.
+        return torch.from_numpy(verts[:, [2, 1, 0]].copy().astype(np.float32)), torch.from_numpy(faces.astype(np.int64))
 
 
 class IsosurfaceHelper(nn.Module):

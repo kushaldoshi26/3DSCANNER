@@ -1,0 +1,15 @@
+{
+  "project_root": "D:\\3dSCANNER",
+  "engine_source": "D:\\3dSCANNER\\engines\\Hunyuan3D-2-main",
+  "model_weights": "D:\\3dSCANNER\\engines\\models",
+  "datasets": "D:\\3dSCANNER\\data\\datasets",
+  "runtime_cache": "D:\\3dSCANNER\\data\\cache",
+  "changed_files": [
+    "D:\\3dSCANNER\\pipeline\\download_hunyuan_ranges.py",
+    "D:\\3dSCANNER\\pipeline\\download_thuman4_all.py",
+    "D:\\3dSCANNER\\pipeline\\finish_hunyuan_setup.py",
+    "D:\\3dSCANNER\\pipeline\\hunyuan3d_inference.py",
+    "D:\\3dSCANNER\\pipeline\\test_hunyuan_portrait.py"
+  ],
+  "old_F_copies": "preserved as backups; no active dependency intended"
+}

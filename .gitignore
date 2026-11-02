@@ -94,3 +94,14 @@ server/.env
 *.obj
 data/
 triposr_repo/
+
+# Local runtime installations and snapshots
+/engines/
+/*backup*/
+/*backup*.py
+/storage-cleanup-*.json
+.env
+*.safetensors
+*.ckpt
+*.pth
+

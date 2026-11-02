@@ -228,7 +228,8 @@ def normalize_and_save_mesh(mesh: trimesh.Trimesh, out_path: Path):
     if isinstance(mesh, trimesh.Scene):
         mesh = trimesh.util.concatenate(mesh.dump())
     
-    mesh.vertices -= mesh.center_mass
+    if mesh.is_empty or not np.isfinite(mesh.vertices).all(): raise ValueError('Dataset has invalid geometry')
+    mesh.vertices -= mesh.bounds.mean(axis=0)
     max_ext = np.max(mesh.extents)
     if max_ext > 0:
         mesh.vertices /= max_ext
@@ -307,7 +308,8 @@ def render_multiview_training_pairs(
     if isinstance(mesh, trimesh.Scene):
         mesh = trimesh.util.concatenate(mesh.dump())
 
-    mesh.vertices -= mesh.center_mass
+    if mesh.is_empty or not np.isfinite(mesh.vertices).all(): raise ValueError('Dataset has invalid geometry')
+    mesh.vertices -= mesh.bounds.mean(axis=0)
     max_ext = np.max(mesh.extents)
     if max_ext > 0:
         mesh.vertices /= max_ext
@@ -391,7 +393,8 @@ def process_all_datasets_into_npz(target_points_count: int = 15000) -> int:
                 continue
 
             # Scale to unit box
-            mesh.vertices -= mesh.center_mass
+            if mesh.is_empty or not np.isfinite(mesh.vertices).all(): raise ValueError('Dataset has invalid geometry')
+            mesh.vertices -= mesh.bounds.mean(axis=0)
             max_ext = np.max(mesh.extents)
             if max_ext > 0:
                 mesh.vertices /= max_ext
@@ -400,6 +403,7 @@ def process_all_datasets_into_npz(target_points_count: int = 15000) -> int:
             points, face_idx = trimesh.sample.sample_surface(mesh, target_points_count)
             normals = mesh.face_normals[face_idx]
 
+            if not np.isfinite(points).all() or not np.isfinite(normals).all(): raise ValueError('Nonfinite dataset samples')
             np.savez(
                 out_npz,
                 vertices=mesh.vertices,

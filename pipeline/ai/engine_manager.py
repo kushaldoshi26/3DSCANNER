@@ -135,197 +135,147 @@ QUALITY_PRESETS = {
 }
 
 
-def run_single_image(
-    engine: Optional[str],
-    image_path: str,
-    output_stl: str,
-    output_glb: str,
-    *,
-    object_type: str = "organic",
-    texture: bool = True,
-    quality: str = "high",
-    progress_cb: Optional[ProgressCallback] = None,
-    refine: bool = True,
-    printable: bool = False,
-    export_obj: bool = True,
-    debug: bool = False,
-) -> Dict[str, Any]:
-    """
-    Runs single-image 3D generation through the engine manager, then applies
-    the structured cleanup, optional bounded refinement, texture, QC, and
-    multi-format export pipeline.
+# Neural models are shared, mutable and compete for the same GPU.
+from threading import Lock
+_GENERATION_LOCK = Lock()
 
-    Args:
-        engine: requested engine key (loose spelling accepted); None = auto.
-        image_path: input 2D image (original reference; used for texture).
-        output_stl / output_glb: primary output paths (STL + GLB).
-        texture: request painted/vertex texture.
-        quality: "fast" | "high" | "ultra".
-        progress_cb: optional (stage, percent, message) callback.
-        refine: enable bounded AI detail refinement.
-        printable: if True, optionally close an open bottom (bust base).
-        export_obj: also export OBJ + MTL.
-        debug: save intermediate artifacts (01_input ... quality_report.json).
+def run_single_image(engine, image_path, output_stl, output_glb, *,
+                     object_type="organic", texture=True, quality="high",
+                     progress_cb=None, refine=False, printable=False,
+                     export_obj=True, debug=False, photo_detail=False):
+    if progress_cb:
+        progress_cb("Waiting for engine", 1, "Waiting for the generation slot...")
+    with _GENERATION_LOCK:
+        return _run_single_image(engine, image_path, output_stl, output_glb,
+            object_type=object_type, texture=texture, quality=quality,
+            progress_cb=progress_cb, refine=refine, printable=printable,
+            export_obj=export_obj, debug=debug, photo_detail=photo_detail)
 
-    Returns dict including engine selection, mesh/texture/QC status, and files.
-    """
+def _run_single_image(engine, image_path, output_stl, output_glb, *,
+                      object_type, texture, quality, progress_cb, refine,
+                      printable, export_obj, debug, photo_detail=False):
+    import json
+    import numpy as np
+    from pathlib import Path
     from pipeline.cleanup_mesh import cleanup_generated_mesh
-    from pipeline.texture_projector import project_texture_to_mesh
-    from pipeline.mesh_quality import validate_mesh
-    from pipeline.ai_refine import refine_mesh, MAX_DISPLACEMENT_RATIO
-
-    logs: List[str] = []
-    preset = QUALITY_PRESETS.get(quality, QUALITY_PRESETS["high"])
-    
-    # If hard_surface is requested, strongly prefer Trellis as it produces 
-    # much cleaner flat surfaces than TripoSR's NeRF-based approach.
-    if object_type == "hard_surface":
-        engine = "trellis"
-        
-    requested_key = resolve_engine(engine)
-
-    def _progress(stage, percent, message):
-        if progress_cb:
-            progress_cb(stage, percent, message)
-        logs.append(f"[{stage}] {message}")
-
-    _progress("Preparing image", 10, "Validating input and foreground extraction...")
-
-    # --- High-quality input preprocessing ---
-    from pathlib import Path as _Path
     from pipeline.preprocess_input import preprocess_for_generation
-    out_dir = _Path(output_stl).parent
-    prep = preprocess_for_generation(image_path, str(out_dir / "prep"), padding_ratio=0.12)
-    generator_input = prep["padded_rgba"]
-    original_rgb = prep["original_rgb"]
-
-    selected = select_best_available(prefer=requested_key)
+    from pipeline.texture_projector import project_texture_to_mesh, has_native_appearance
+    from pipeline.mesh_quality import validate_mesh
+    logs=[]
+    preset=QUALITY_PRESETS.get(quality, QUALITY_PRESETS['high'])
+    quality=quality if quality in QUALITY_PRESETS else 'high'
+    requested_key=resolve_engine(engine)
+    def progress(stage, percent, message):
+        logs.append(f"[{stage}] {message}")
+        if progress_cb: progress_cb(stage,percent,message)
+    selected=select_best_available(prefer=requested_key)
     if selected is None:
-        raise RuntimeError(
-            "No single-image 3D engine is available. "
-            "Install one of: microsoft/TRELLIS, tencent/Hunyuan3D-2, or stabilityai/TripoSR. "
-            "AI Depth preview (pipeline.ai_depth_3d) remains available as a non-360 fallback."
-        )
-
-    # Build the full chain starting from whatever was selected, preserving
-    # the global priority order so we always try the best engines first.
-    chain: List[str] = []
-    if selected.key not in chain:
-        chain.append(selected.key)
-    chain.extend(selected.fallbacks)
-    for key in _PRIORITY_ORDER:
-        if key not in chain:
-            chain.append(key)
-
-    # Raw AI mesh is saved so we can compare raw vs cleaned (debug / tuning).
-    raw_stl = str(out_dir / "raw_ai_mesh.stl")
-    raw_glb = str(out_dir / "raw_ai_mesh.glb")
-
-    last_err: Optional[Exception] = None
-    for candidate_key in chain:
-        candidate = _ENGINES.get(candidate_key)
-        if candidate is None or not candidate.is_available():
-            logs.append(f"Skipping {candidate_key}: package not available.")
-            continue
+        raise RuntimeError("No single-image 3D engine is available. Install TRELLIS, Hunyuan3D or TripoSR.")
+    out=Path(output_stl).parent;out.mkdir(parents=True,exist_ok=True)
+    progress('Preparing image',10,'Preserving input alpha, orientation and foreground detail...')
+    prep=preprocess_for_generation(image_path,str(out/'prep'))
+    raw_stl=str(out/'raw_ai_mesh.stl');raw_glb=str(out/'raw_ai_mesh.glb')
+    chain=list(dict.fromkeys([selected.key]+selected.fallbacks+_PRIORITY_ORDER))
+    failures=[]
+    used=None
+    engine_metadata={}
+    for key in chain:
+        candidate=_ENGINES.get(key)
+        if candidate is None or not candidate.is_available(): continue
         try:
-            if candidate_key != requested_key:
-                logs.append(f"TRELLIS unavailable -> using {candidate.label}" if requested_key == "trellis" else f"Falling back to {candidate.label}...")
-            _progress("Generating base geometry", 35, f"Running {candidate.label}...")
-            candidate.generate(
-                generator_input,
-                raw_stl,
-                raw_glb,
-                texture=False,  # we texture from the original image ourselves
-                quality=quality,
-                progress_cb=lambda s, p, m: _progress("Generating base geometry", 35 + int(p * 0.2), m),
-            )
-
-            # --- Structured cleanup ---
-            _progress("Cleaning mesh", 60, "Removing artifacts & face-aware smoothing...")
-            clean_stl = output_stl
-            cleanup_generated_mesh(
-                raw_stl,
-                clean_stl,
-                image_path=original_rgb,
-                object_type=object_type,
-                smoothing_enabled=True,
-                taubin_iterations=preset["taubin_iterations"],
-                face_strength=preset["face_strength"],
-                body_strength=preset["body_strength"],
-                debug=debug,
-            )
-
-            # --- Optional bounded AI refinement (relative ratio for generative) ---
-            _progress("Preserving facial detail", 72, "Optional bounded detail refinement...")
-            if refine and preset["refine"]:
-                refined_stl = str(out_dir / "refined_mesh.stl")
-                
-                # IMPORTANT: Generative models (Trellis, Tripo, Hunyuan) already output perfect 
-                # high-frequency 3D details. Applying the 2.5D neural depth network over them 
-                # destroys their topology, causing rippled/bumpy artifacts. We only enable 
-                # displacement for raw 2.5D depth extrusions.
-                should_displace = (candidate_key in ["ai_depth", "custom_3d"])
-                
-                refine_mesh(
-                    str(clean_stl),
-                    refined_stl,
-                    reference_images=[original_rgb],
-                    enable_ai_displacement=should_displace,
-                    max_displacement_mm=MAX_DISPLACEMENT_RATIO * 1000.0,  # relative ratio scaled
-                    smoothing_iterations=0,
-                )
-                clean_stl = refined_stl
-
-            # --- Texture from ORIGINAL high-res image ---
-            _progress("Generating texture", 82, "UV unwrap + high-resolution texture projection...")
-            textured_glb = output_glb
-            if texture:
-                project_texture_to_mesh(str(clean_stl), original_rgb, textured_glb, use_uv_atlas=True)
-            else:
-                _copy_mesh(str(clean_stl), textured_glb)
-
-            # --- Multi-format export ---
-            _progress("Preparing exports", 90, "Exporting STL / GLB / OBJ...")
-            files = {
-                "stl": str(output_stl),
-                "glb": str(output_glb),
-            }
-            if export_obj or preset["export_obj"]:
-                obj_path = str(_Path(output_stl).with_suffix(".obj"))
-                _copy_mesh(str(clean_stl), obj_path)
-                files["obj"] = obj_path
-            if printable:
-                files["stl_printable"] = _make_printable_bust(str(clean_stl), str(out_dir / "printable.stl"))
-
-            # --- QC ---
-            _progress("Mesh validation", 95, "Running mesh quality control...")
-            qc = validate_mesh(str(output_stl), require_watertight=False)
-            if debug:
-                import json as _json
-                with open(str(out_dir / "quality_report.json"), "w") as _f:
-                    _json.dump(qc, _f, indent=2)
-
-            return {
-                "engine_requested": requested_key,
-                "engine_used": candidate.key,
-                "engine_label": candidate.label,
-                "degraded": candidate.key != requested_key,
-                "mesh_path": str(clean_stl),
-                "glb_path": str(output_glb),
-                "texture_path": str(output_glb) if texture else None,
-                "quality": qc,
-                "files": files,
-                "warnings": qc.get("warnings", []),
-                "logs": logs,
-            }
+            # Failed candidates must not leave stale outputs for their successor.
+            for path in (raw_stl,raw_glb): Path(path).unlink(missing_ok=True)
+            progress('Generating base geometry',35,f'Running {candidate.label} ({quality})...')
+            generation_result=candidate.generate(prep['padded_rgba'],raw_stl,raw_glb,
+                texture=texture,quality=quality,
+                progress_cb=lambda stage,percent,message: progress('Generating base geometry',35+int(percent*.2),message))
+            source=raw_glb if Path(raw_glb).is_file() else raw_stl
+            raw=trimesh_load_safe(source)
+            if raw.is_empty or not np.isfinite(raw.vertices).all():
+                raise RuntimeError('Engine returned empty or non-finite geometry.')
+            engine_metadata=(generation_result or {}).get('generation',{})
+            used=candidate;break
         except Exception as err:
-            last_err = err
-            logs.append(f"Notice: {candidate.label} failed ({err}).")
-
-    raise RuntimeError(
-        f"All single-image engines failed for '{requested_key}'. "
-        f"Last error: {last_err}"
-    )
+            failures.append(f'{candidate.label}: {err}')
+            logs.append(f'Engine failed: {failures[-1]}')
+    if used is None: raise RuntimeError('All single-image engines failed. '+'; '.join(failures))
+    # Post-processing failures must not rerun an expensive neural engine.
+    progress('Cleaning mesh',60,'Removing invalid faces and gently smoothing while retaining native colors...')
+    clean=str(out/'cleaned_model.glb')
+    cleanup_generated_mesh(source,clean,image_path=prep['original_rgb'],
+        object_type=object_type,smoothing_enabled=refine,
+        taubin_iterations=preset['taubin_iterations'],
+        face_strength=preset['face_strength'],body_strength=preset['body_strength'],debug=debug)
+    final=trimesh_load_safe(clean)
+    if refine:
+        # Generative geometry already has inferred 360-degree structure.
+        # A separate monocular depth network must not displace this mesh.
+        import trimesh
+        trimesh.repair.fill_holes(final)
+        final.fix_normals(multibody=True)
+    warnings=['Unseen geometry and texture are inferred from a single image.', 'Facial expression, facial depth and accessory accuracy have not been validated against a 3D reference.']
+    if texture:
+        if not has_native_appearance(final):
+            final.export(clean)
+            project_texture_to_mesh(clean,prep['padded_rgba'],output_glb,use_uv_atlas=False)
+            final=trimesh_load_safe(output_glb)
+            warnings.append('Engine had no native colors; source-image projection is approximate, especially on unseen surfaces.')
+    else:
+        import trimesh
+        final.visual=trimesh.visual.ColorVisuals(mesh=final)
+    progress('Mesh validation',85,'Checking final geometry before writing all exports...')
+    qc=validate_mesh(final,require_watertight=printable,coordinate_space='normalized')
+    warnings.extend(qc['warnings'])
+    if not qc['passed']:
+        raise RuntimeError('Final mesh failed quality checks: '+'; '.join(qc['errors']))
+    progress('Preparing exports',92,'Writing matching STL, GLB and OBJ geometry...')
+    final.export(str(output_stl))
+    import trimesh
+    export_scene=trimesh.Scene(final)
+    if engine_metadata.get('source_view'):
+        export_scene.metadata['source_view']=engine_metadata['source_view']
+    export_scene.export(str(output_glb),include_normals=True)
+    source_detail=None
+    if texture and photo_detail:
+        # Keep geometry and native appearance available; enrich visible GLB faces only.
+        import shutil
+        native_glb=out/'native_model.glb'
+        shutil.copy2(output_glb,native_glb)
+        try:
+            from pipeline.source_detail import enhance_source_detail
+            progress('Preserving photo detail',95,'Matching visible source detail; keeping unseen surfaces inferred...')
+            enriched=out/'source_detail_model.glb'
+            source_detail=enhance_source_detail(native_glb,prep['foreground_rgba'],enriched,allow_textured=photo_detail,align_photo=photo_detail,visibility_size=2048 if photo_detail else 1024)
+            if source_detail.get('applied'):
+                shutil.copy2(enriched,output_glb)
+                warnings.append('Visible GLB surfaces use source-photo projection. This improves appearance, not measured geometry; unseen surfaces remain inferred.')
+                if (source_detail.get('back_texture') or {}).get('observed_back') is False:
+                    warnings.append('Rear fabric pattern is estimated from a visible clothing patch, not an observed back photograph.')
+            else:
+                warnings.append('Source detail skipped: '+source_detail.get('reason','alignment unavailable'))
+        except Exception as error:
+            warnings.append('Source detail unavailable; retained native appearance.')
+            logs.append('Source detail: '+str(error))
+    files={'stl':str(output_stl),'glb':str(output_glb)}
+    import trimesh
+    point_path=out/'final_model.ply'
+    colours=final.visual.to_color().vertex_colors if final.visual.kind=='texture' else final.visual.vertex_colors
+    trimesh.points.PointCloud(final.vertices,colors=colours).export(point_path)
+    files['ply']=str(point_path)
+    if export_obj or preset['export_obj']:
+        obj=str(Path(output_stl).with_suffix('.obj'));final.export(obj);files['obj']=obj
+    if printable:
+        printable_path=str(out/'printable.stl');final.export(printable_path);files['stl_printable']=printable_path
+    if used.key != requested_key:
+        warnings.append(f'Requested {requested_key}; generated with {used.label}.')
+    report={'engine_requested':requested_key,'engine_used':used.key,
+        'engine_label':used.label,'degraded':used.key!=requested_key,
+        'mesh_path':str(output_stl),'glb_path':str(output_glb),
+        'texture_path':str(output_glb) if texture else None,
+        'quality':qc,'files':files,'warnings':warnings,'logs':logs,'source_detail':source_detail,
+        'generation':engine_metadata,'experimental':bool(photo_detail and source_detail and source_detail.get('applied'))}
+    (out/'quality_report.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
+    return report
 
 
 def _copy_mesh(src: str, dst: str) -> None:
@@ -343,22 +293,12 @@ def trimesh_load_safe(p: str):
 
 
 def _make_printable_bust(stl: str, out_path: str) -> str:
-    """Closes an open bottom with a flat bust base (explicit printable option)."""
-    m = trimesh_load_safe(stl)
-    try:
-        if not m.is_watertight:
-            # Cut at lower 15% and cap with a flat bottom.
-            extents = m.extents
-            z_min = m.bounds[0][2]
-            cut_z = z_min + extents[2] * 0.12
-            section = m.section(plane_origin=[0, 0, cut_z], plane_normal=[0, 0, 1])
-            if section is not None:
-                poly = section.to_planar()[0]
-                cap = trimesh.path.polygons.paths_to_mesh(poly)
-                capped = trimesh.util.concatenate([m, cap])
-                capped.export(out_path)
-                return out_path
-    except Exception:
-        pass
-    _copy_mesh(stl, out_path)
+    """Repair only small holes; never cut away a model to claim printability."""
+    import trimesh
+    mesh=trimesh_load_safe(stl)
+    trimesh.repair.fill_holes(mesh)
+    mesh.fix_normals(multibody=True)
+    if not mesh.is_watertight:
+        raise RuntimeError('Mesh is not watertight; additional manual repair is required for printing.')
+    mesh.export(out_path)
     return out_path

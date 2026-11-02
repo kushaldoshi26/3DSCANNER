@@ -169,37 +169,37 @@ class TSR(BaseModule):
         self.isosurface_helper = MarchingCubeHelper(resolution)
 
     def extract_mesh(self, scene_codes, has_vertex_color, resolution: int = 256, threshold: float = 25.0):
+        """Evaluate the grid in bounded chunks; retain only density on CPU.
+
+        Avoids a resolution^3 GPU coordinate tensor and simultaneous density,
+        feature and color volumes. Neural evaluation is unchanged.
+        """
         self.set_marching_cubes_resolution(resolution)
-        meshes = []
+        meshes=[]
+        total=resolution**3
+        chunk_size=self.renderer.chunk_size or 8192
         for scene_code in scene_codes:
+            density=torch.empty(total,dtype=torch.float32,device='cpu')
             with torch.no_grad():
-                density = self.renderer.query_triplane(
-                    self.decoder,
-                    scale_tensor(
-                        self.isosurface_helper.grid_vertices.to(scene_codes.device),
-                        self.isosurface_helper.points_range,
-                        (-self.renderer.cfg.radius, self.renderer.cfg.radius),
-                    ),
-                    scene_code,
-                )["density_act"]
-            v_pos, t_pos_idx = self.isosurface_helper(-(density - threshold))
-            v_pos = scale_tensor(
-                v_pos,
-                self.isosurface_helper.points_range,
-                (-self.renderer.cfg.radius, self.renderer.cfg.radius),
-            )
-            color = None
+                for start in range(0,total,chunk_size):
+                    index=torch.arange(start,min(start+chunk_size,total),device=scene_code.device)
+                    coords=torch.stack((index//(resolution*resolution),
+                        (index//resolution)%resolution,index%resolution),dim=-1).float()/(resolution-1)
+                    coords=scale_tensor(coords,(0,1),(-self.renderer.cfg.radius,self.renderer.cfg.radius))
+                    values=self.renderer.query_triplane(self.decoder,coords,scene_code)['density_act']
+                    density[start:start+len(index)]=values.reshape(-1).detach().cpu()
+            v_pos,faces=self.isosurface_helper(-(density-threshold))
+            v_pos=scale_tensor(v_pos,self.isosurface_helper.points_range,
+                (-self.renderer.cfg.radius,self.renderer.cfg.radius))
+            if len(v_pos)==0: raise RuntimeError('No isosurface found at the configured threshold.')
+            color=None
             if has_vertex_color:
+                chunks=[]
                 with torch.no_grad():
-                    color = self.renderer.query_triplane(
-                        self.decoder,
-                        v_pos,
-                        scene_code,
-                    )["color"]
-            mesh = trimesh.Trimesh(
-                vertices=v_pos.cpu().numpy(),
-                faces=t_pos_idx.cpu().numpy(),
-                vertex_colors=color.cpu().numpy() if has_vertex_color else None,
-            )
-            meshes.append(mesh)
+                    for start in range(0,len(v_pos),chunk_size):
+                        colors=self.renderer.query_triplane(self.decoder,
+                            v_pos[start:start+chunk_size].to(scene_code.device),scene_code)['color']
+                        chunks.append(colors.detach().cpu())
+                color=torch.cat(chunks).numpy()
+            meshes.append(trimesh.Trimesh(vertices=v_pos.cpu().numpy(),faces=faces.cpu().numpy(),vertex_colors=color))
         return meshes

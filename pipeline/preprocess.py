@@ -1,15 +1,27 @@
 import os
 import cv2
 import numpy as np
+from PIL import Image, ImageOps
+from functools import lru_cache
 from pathlib import Path
 from typing import Optional, List
 
-try:
-    from rembg import remove
-    REMBG_AVAILABLE = True
-except ImportError:
-    REMBG_AVAILABLE = False
-    print("Warning: 'rembg' library not installed. Falling back to OpenCV segmentation.")
+import importlib.util
+REMBG_AVAILABLE = importlib.util.find_spec('rembg') is not None
+
+def remove(*args, **kwargs):
+    from rembg import remove as remove_impl
+    return remove_impl(*args, **kwargs)
+
+
+@lru_cache(maxsize=1)
+def _background_session():
+    from rembg.sessions.u2net import U2netSession
+    import onnxruntime as ort
+    options = ort.SessionOptions()
+    options.intra_op_num_threads = 2
+    options.inter_op_num_threads = 1
+    return U2netSession("u2net", options, providers=["CPUExecutionProvider"])
 
 
 def remove_background_opencv(img: np.ndarray) -> np.ndarray:
@@ -45,26 +57,34 @@ def remove_background_opencv(img: np.ndarray) -> np.ndarray:
     return rgba
 
 
-def process_single_image(input_path: str, output_path: str) -> str:
+def process_single_image(input_path: str, output_path: str, *, suppress_turntable: bool = False) -> str:
     """
     Process a single image to remove background, isolate foreground object,
     and eliminate turntable base platform artifacts.
     """
-    img = cv2.imread(input_path)
-    if img is None:
-        raise ValueError(f"Could not read image: {input_path}")
-
-    if REMBG_AVAILABLE:
+    with Image.open(input_path) as source:
+        upright = ImageOps.exif_transpose(source).convert("RGBA")
+    rgba = np.asarray(upright)
+    img = cv2.cvtColor(rgba[:, :, :3], cv2.COLOR_RGB2BGR)
+    # Respect supplied segmentation instead of removing it a second time.
+    if np.any(rgba[:, :, 3] < 255):
+        output_img = cv2.cvtColor(rgba, cv2.COLOR_RGBA2BGRA)
+        if not suppress_turntable:
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+            cv2.imwrite(output_path, output_img)
+            return output_path
+    elif REMBG_AVAILABLE:
         try:
-            output_img = remove(img)
+            rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            output_img = cv2.cvtColor(np.asarray(remove(rgb, session=_background_session())), cv2.COLOR_RGBA2BGRA)
         except Exception as e:
-            print(f"Rembg processing failed for {input_path}: {e}. Using OpenCV fallback.")
+            print(f"Background extraction failed: {e}; using GrabCut.")
             output_img = remove_background_opencv(img)
     else:
         output_img = remove_background_opencv(img)
 
     output_img = np.array(output_img, copy=True)
-    if output_img.shape[2] == 4:
+    if suppress_turntable and output_img.shape[2] == 4:
         # Suppress bright saturated turntable colors (e.g. red/green turntable base in lower region)
         hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
         mask_red1 = cv2.inRange(hsv, np.array([0, 60, 40]), np.array([14, 255, 255]))
@@ -105,7 +125,7 @@ def process_images(input_dir: str, output_dir: str) -> List[str]:
     for idx, file_path in enumerate(files, 1):
         out_file = out_path / f"{file_path.stem}.png"
         try:
-            process_single_image(str(file_path), str(out_file))
+            process_single_image(str(file_path), str(out_file), suppress_turntable=True)
             processed_files.append(str(out_file))
             print(f"[{idx}/{len(files)}] Processed: {file_path.name}")
         except Exception as e:

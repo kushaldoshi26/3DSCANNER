@@ -8,7 +8,9 @@ and exposes the uniform `EngineBase` contract used by `engine_manager`.
 from pipeline.ai.engine_base import EngineBase, probe_module
 
 _QUALITY_RESOLUTION = {
-    "high": 512,
+    "fast": 256,
+    "high": 384,
+    "ultra": 512,
     "medium": 384,
     "low": 256,
 }
@@ -34,7 +36,7 @@ class TripoEngine(EngineBase):
     ) -> dict:
         from pipeline.triposr_inference import generate_triposr_3d_mesh
 
-        resolution = _QUALITY_RESOLUTION.get(quality, 512)
+        resolution = _QUALITY_RESOLUTION.get(quality, 384)
         self._progress(progress_cb, "AI reconstruction", 40, "Loading TripoSR model...")
         self._progress(progress_cb, "AI reconstruction", 60, f"TripoSR tri-plane inference (res={resolution})...")
         try:

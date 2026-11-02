@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from api.routes import router
+from api.oauth import router as oauth_router
 from api.db import init_db
 
 app = FastAPI(
@@ -26,6 +27,7 @@ app.add_middleware(
 )
 
 app.include_router(router)
+app.include_router(oauth_router)
 
 # Mount Web Dashboard Frontend
 static_dir = Path(__file__).resolve().parent.parent / "static"
@@ -40,9 +42,9 @@ async def startup():
 async def root():
     index_path = static_dir / "index.html"
     if index_path.exists():
-        return FileResponse(str(index_path))
+        return FileResponse(str(index_path), headers={"Cache-Control": "no-store, max-age=0"})
     return {"message": "Phone 3D Scanner AI API is running. Access /docs for API documentation."}
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("api.main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("api.main:app", host="0.0.0.0", port=8000, reload=False)
