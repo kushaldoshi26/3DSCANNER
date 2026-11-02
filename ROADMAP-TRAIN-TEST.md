@@ -1,3 +1,29 @@
+# Current project status - 2 November 2026
+
+This section supersedes the historical roadmap below. No cloud deployment has been performed.
+
+## Verified implementation
+- API, workspace/viewer, gallery, account UI, OAuth flows, training utilities and hardware controller source are tracked in Git.
+- Native Hunyuan textured portrait generation succeeded on 29 October: job c776baa8, 406.13 seconds. See PORTRAIT-QUALITY-20261029.md for evidence and limitations.
+- Latest checks: 49 focused Python tests and JavaScript account/gallery/generation/point-view checks passed; six runtime tests passed after the portability change.
+- merged_v4 completed 20 epochs (best 12), synthetic-only and not activated. domain_v5 completed 11 epochs (best 3), regressed and was not activated. These train depth/mask models, not Hunyuan.
+
+## Remaining work in priority order
+1. Establish a fixed unseen real-photo evaluation set; compare face expression/profile, hands, accessories and fabric detail separately. Current generation is approximate, with inferred backs.
+2. Verify model-specific training data and a feasible training recipe before new fine-tuning. THuman2 currently supplies one imported textured sample; THuman4 full training data is not ready. Do not merge incompatible datasets blindly.
+3. Evaluate a face/expression refinement candidate and texture preservation against the same baseline, then train only if justified. Hunyuan weights remain pretrained.
+4. Finish physical camera mount and run actual ESP32 camera/turntable capture, calibration and reconstruction tests. Controller source alone does not establish scan accuracy.
+5. Configure Google/Facebook provider credentials privately and test real callbacks. Backend implementation is not proof of successful provider login.
+6. Check installation reproducibility: requirements.txt still has pyserial==3.50 and local hardware dependencies; resolve versions in an isolated environment before changing the working installation. Cloud/Linux installation is not validated.
+7. Perform a fresh live UI/API test after starting the local server, including restart/recovery, exports and job failure handling. The recent API probe timed out.
+
+## Repository scope
+GitHub branch: scanner-local-integration. The GitHub main branch has unrelated website history; it has not been overwritten or merged. Source, tests and required homepage model assets are published. Private job/account data, datasets, model weights, local engine installations and backups remain local. deployment/ contains preparation instructions only; no hosting was started.
+
+---
+
+# Historical roadmap (23 October; retained for context)
+
 # 3D SCANNER: roadmap, training and testing
 
 ## Current state
